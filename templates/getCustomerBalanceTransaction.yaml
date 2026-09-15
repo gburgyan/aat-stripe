@@ -1,0 +1,23 @@
+adapter: getCustomerBalanceTransaction
+protocol: http
+
+request:
+  method: GET
+  path: /v1/customers/{{customerId}}/balance_transactions/{{customerBalanceTransactionId}}
+
+response:
+  extract:
+    customerBalanceTransactionId: id
+    type: type
+    amount: amount
+    currency: currency
+    endingBalance: ending_balance
+    description:
+      path: description
+      default: ""
+    note:
+      path: metadata.note
+      default: ""
+    source:
+      path: metadata.source
+      default: ""

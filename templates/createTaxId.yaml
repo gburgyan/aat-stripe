@@ -1,0 +1,26 @@
+adapter: createTaxId
+protocol: http
+
+request:
+  method: POST
+  path: /v1/customers/{{customerId}}/tax_ids
+  headers:
+    Idempotency-Key: "{{idempotencyKey}}"
+  form:
+    type: "{{type}}"
+    value: "{{value}}"
+
+response:
+  extract:
+    taxId: id
+    type: type
+    value: value
+    country:
+      path: country
+      default: ""
+    verificationStatus:
+      path: verification.status
+      default: ""
+    customerId:
+      path: customer
+      default: ""

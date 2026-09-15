@@ -1,0 +1,22 @@
+adapter: searchCustomers
+protocol: http
+
+request:
+  method: GET
+  path: /v1/customers/search?query={{query}}&limit={{limit}}{{?page}}&page={{page}}{{/page}}
+
+response:
+  extract:
+    customers:
+      path: data
+      fields:
+        id: id
+        email: email
+    count: 'data.#'
+    hasMore: has_more
+    nextPage:
+      path: next_page
+      default: ""
+    firstId:
+      path: data.0.id
+      default: ""

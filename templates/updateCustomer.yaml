@@ -1,0 +1,37 @@
+adapter: updateCustomer
+protocol: http
+
+request:
+  method: POST
+  path: /v1/customers/{{customerId}}
+  headers:
+    Idempotency-Key: "{{idempotencyKey}}"
+  form:
+    name: "{{name}}"
+    email: "{{email}}"
+    description: "{{description}}"
+    phone: "{{phone}}"
+    preferred_locales[]: "{{preferredLocales}}"
+    metadata:
+      note: "{{note}}"
+
+response:
+  extract:
+    customerId: id
+    name:
+      path: name
+      default: ""
+    email:
+      path: email
+      default: ""
+    description:
+      path: description
+      default: ""
+    phone:
+      path: phone
+      default: ""
+    note:
+      path: metadata.note
+      default: ""
+    balance: balance
+    preferredLocaleCount: 'preferred_locales.#'

@@ -1,0 +1,77 @@
+# A customer's balance adjusted both ways: a credit of 500 leaves -500, a debit of 700 leaves 200, and each adjustment
+# records the balance after it. The credit's description and note can change, and the list shows both, newest first.
+# Balance transactions can't be deleted; cleanup deletes the customer.
+intent:
+  goal: listed
+  description: A customer's balance is credited, then debited, and each transaction records the balance after it
+
+execution:
+  steps:
+    - id: create
+      node: createCustomer
+      description: A customer tagged metadata[source]=aat-stripe
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: livemode == false && source == "aat-stripe"
+
+    - id: credit
+      node: createCustomerBalanceTransaction
+      description: Credit the customer 500
+      values:
+        customerId: {from: create.customerId}
+        amount: -500
+        description: AAT Stripe credit
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: type == "adjustment" && amount == -500 && endingBalance == -500 && currency == "usd" && source == "aat-stripe"
+
+    - id: debit
+      node: createCustomerBalanceTransaction
+      dependsOn: [credit]
+      description: Debit the customer 700
+      values:
+        customerId: {from: create.customerId}
+        amount: 700
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: type == "adjustment" && amount == 700 && endingBalance == "{{credit.endingBalance + 700}}"
+
+    - id: described
+      node: updateCustomerBalanceTransaction
+      dependsOn: [debit]
+      description: Describe the credit again and add a note
+      values:
+        customerId: {from: create.customerId}
+        customerBalanceTransactionId: {from: credit.customerBalanceTransactionId}
+        description: AAT Stripe credit, updated
+        note: updated
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: description == "AAT Stripe credit, updated" && note == "updated" && amount == -500 && endingBalance == -500
+
+    - id: read
+      node: getCustomerBalanceTransaction
+      description: The credit read back
+      values:
+        customerId: {from: create.customerId}
+        customerBalanceTransactionId: {from: credit.customerBalanceTransactionId}
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: description == "{{described.description}}" && note == "updated" && endingBalance == -500
+
+    - id: listed
+      node: listCustomerBalanceTransactions
+      dependsOn: [read]
+      isGoal: true
+      description: The customer's balance transactions
+      values:
+        customerId: {from: create.customerId}
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: count == 2 && latestEndingBalance == "{{debit.endingBalance}}" && lastId == "{{credit.customerBalanceTransactionId}}"

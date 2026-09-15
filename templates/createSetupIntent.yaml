@@ -1,0 +1,55 @@
+adapter: createSetupIntent
+protocol: http
+
+request:
+  method: POST
+  path: /v1/setup_intents
+  headers:
+    Idempotency-Key: "{{idempotencyKey}}"
+  form:
+    customer: "{{customerId}}"
+    payment_method: "{{paymentMethod}}"
+    payment_method_types[]: "{{paymentMethodTypes}}"
+    confirm: "{{confirm}}"
+    usage: "{{usage}}"
+    return_url: "{{returnUrl}}"
+    description: "{{description}}"
+    metadata:
+      source: aat-stripe
+
+response:
+  extract:
+    setupIntentId: id
+    status: status
+    usage: usage
+    livemode: livemode
+    customerId:
+      path: customer
+      default: ""
+    paymentMethodId:
+      path: payment_method
+      default: ""
+    latestAttemptId:
+      path: latest_attempt
+      default: ""
+    nextActionType:
+      path: next_action.type
+      default: ""
+    lastSetupErrorCode:
+      path: last_setup_error.code
+      default: ""
+    lastSetupErrorDeclineCode:
+      path: last_setup_error.decline_code
+      default: ""
+    cancellationReason:
+      path: cancellation_reason
+      default: ""
+    description:
+      path: description
+      default: ""
+    note:
+      path: metadata.note
+      default: ""
+    source:
+      path: metadata.source
+      default: ""

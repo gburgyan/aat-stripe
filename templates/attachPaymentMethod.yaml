@@ -1,0 +1,43 @@
+adapter: attachPaymentMethod
+protocol: http
+
+request:
+  method: POST
+  path: /v1/payment_methods/{{paymentMethodId}}/attach
+  headers:
+    Idempotency-Key: "{{idempotencyKey}}"
+  form:
+    customer: "{{customerId}}"
+
+response:
+  extract:
+    paymentMethodId: id
+    type: type
+    livemode: livemode
+    customerId:
+      path: customer
+      default: ""
+    cardBrand:
+      path: card.brand
+      default: ""
+    cardLast4:
+      path: card.last4
+      default: ""
+    cardCountry:
+      path: card.country
+      default: ""
+    cardFunding:
+      path: card.funding
+      default: ""
+    billingName:
+      path: billing_details.name
+      default: ""
+    allowRedisplay:
+      path: allow_redisplay
+      default: ""
+    note:
+      path: metadata.note
+      default: ""
+    source:
+      path: metadata.source
+      default: ""

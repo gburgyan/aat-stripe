@@ -1,0 +1,39 @@
+adapter: getCustomerPaymentMethod
+protocol: http
+
+request:
+  method: GET
+  path: /v1/customers/{{customerId}}/payment_methods/{{paymentMethodId}}
+
+response:
+  extract:
+    paymentMethodId: id
+    type: type
+    livemode: livemode
+    customerId:
+      path: customer
+      default: ""
+    cardBrand:
+      path: card.brand
+      default: ""
+    cardLast4:
+      path: card.last4
+      default: ""
+    cardCountry:
+      path: card.country
+      default: ""
+    cardFunding:
+      path: card.funding
+      default: ""
+    billingName:
+      path: billing_details.name
+      default: ""
+    allowRedisplay:
+      path: allow_redisplay
+      default: ""
+    note:
+      path: metadata.note
+      default: ""
+    source:
+      path: metadata.source
+      default: ""

@@ -1,0 +1,37 @@
+adapter: listSetupIntents
+protocol: http
+
+request:
+  method: GET
+  path: /v1/setup_intents?limit={{limit}}{{?customerId}}&customer={{customerId}}{{/customerId}}{{?createdGte}}&created[gte]={{createdGte}}{{/createdGte}}{{?startingAfter}}&starting_after={{startingAfter}}{{/startingAfter}}
+
+response:
+  extract:
+    setupIntents:
+      path: data
+      fields:
+        id: id
+        status: status
+    count: 'data.#'
+    hasMore: has_more
+    lastId:
+      path: data.@reverse.0.id
+      default: ""
+  # SetupIntents this package creates carry metadata.source "aat-stripe". A page counts those, and those of them still
+  # in a requires_ state, which it lists so a guard that fails can name them.
+  transform: |
+    local ours, open, live = 0, {}, 0
+    for _, si in ipairs(json_path("data") or {}) do
+      if type(si.metadata) == "table" and si.metadata.source == "aat-stripe" then
+        ours = ours + 1
+        if type(si.status) == "string" and si.status:sub(1, 9) == "requires_" then
+          table.insert(open, {id = si.id, status = si.status, created = si.created})
+        end
+      end
+      if si.livemode == true then live = live + 1 end
+    end
+    outputs.ourCount = ours
+    outputs.ourOpenCount = #open
+    if #open > 0 then outputs.ourOpen = open end
+    outputs.liveCount = live
+    return outputs

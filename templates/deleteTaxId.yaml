@@ -1,0 +1,11 @@
+adapter: deleteTaxId
+protocol: http
+
+request:
+  method: DELETE
+  path: /v1/customers/{{customerId}}/tax_ids/{{taxId}}
+
+response:
+  extract:
+    taxId: id
+    deleted: deleted

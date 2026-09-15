@@ -1,0 +1,183 @@
+# A PaymentMethod's life with a customer. Made from tok_visa, it belongs to no one; attached, it is the customer's, and
+# its billing name and note can change. Attaching the test card pm_card_mastercard makes a new PaymentMethod with an ID
+# of its own. Detached, a PaymentMethod is gone for good: attaching it again and detaching it again are both 400 with no
+# code, and reading it under the customer is 404 on param customer. Cleanup deletes the customer.
+intent:
+  goal: detachedRead
+  description: A PaymentMethod is attached, updated, listed, and detached for good
+
+execution:
+  steps:
+    - id: customer
+      node: createCustomer
+      description: A customer tagged metadata[source]=aat-stripe
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: livemode == false && source == "aat-stripe"
+
+    - id: card
+      node: createPaymentMethod
+      description: A card from a test token, belonging to no one yet
+      values:
+        cardToken: tok_visa
+        billingName: AAT Stripe
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: >-
+              livemode == false && type == "card" && customerId == "" && cardBrand == "visa" && cardLast4 == "4242" &&
+              allowRedisplay == "unspecified" && billingName == "AAT Stripe" && source == "aat-stripe"
+
+    - id: attached
+      node: attachPaymentMethod
+      description: Attach the card to the customer
+      values:
+        paymentMethodId: {from: card.paymentMethodId}
+        customerId: {from: customer.customerId}
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: customerId == "{{customer.customerId}}" && paymentMethodId == "{{card.paymentMethodId}}"
+
+    - id: renamed
+      node: updatePaymentMethod
+      dependsOn: [attached]
+      description: Change the billing name and add a note
+      values:
+        paymentMethodId: {from: card.paymentMethodId}
+        billingName: AAT Stripe updated
+        note: updated
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: billingName == "AAT Stripe updated" && note == "updated" && customerId == "{{customer.customerId}}"
+
+    - id: underCustomer
+      node: getCustomerPaymentMethod
+      dependsOn: [renamed]
+      description: The card, read under the customer
+      values:
+        customerId: {from: customer.customerId}
+        paymentMethodId: {from: card.paymentMethodId}
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: paymentMethodId == "{{card.paymentMethodId}}" && billingName == "AAT Stripe updated"
+
+    - id: mastercard
+      node: attachPaymentMethod
+      dependsOn: [underCustomer]
+      description: Attach the test card pm_card_mastercard
+      values:
+        paymentMethodId: pm_card_mastercard
+        customerId: {from: customer.customerId}
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: paymentMethodId != "pm_card_mastercard" && cardBrand == "mastercard" && customerId == "{{customer.customerId}}"
+
+    - id: customerCards
+      node: listCustomerPaymentMethods
+      dependsOn: [mastercard]
+      description: The customer's cards, newest first
+      values:
+        customerId: {from: customer.customerId}
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: count == 2 && lastId == "{{card.paymentMethodId}}"
+
+    - id: cards
+      node: listPaymentMethods
+      dependsOn: [customerCards]
+      description: The same cards, through the PaymentMethods list
+      values:
+        customerId: {from: customer.customerId}
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: count == 2 && lastId == "{{card.paymentMethodId}}"
+
+    - id: detached
+      node: detachPaymentMethod
+      dependsOn: [cards]
+      description: Detach the first card
+      values:
+        paymentMethodId: {from: card.paymentMethodId}
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: customerId == "" && paymentMethodId == "{{card.paymentMethodId}}"
+
+    - id: byId
+      node: getPaymentMethod
+      dependsOn: [detached]
+      description: The detached card, read by its ID alone
+      values:
+        paymentMethodId: {from: card.paymentMethodId}
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: customerId == "" && billingName == "AAT Stripe updated" && note == "updated" && cardLast4 == "4242"
+
+    - id: reattach
+      node: attachPaymentMethod
+      dependsOn: [byId]
+      description: Attach the detached card again
+      values:
+        paymentMethodId: {from: card.paymentMethodId}
+        customerId: {from: customer.customerId}
+      expectFailure:
+        status: [400]
+        description: a detached PaymentMethod may not be used again
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: error.type == "invalid_request_error"
+          - type: fieldAbsent
+            path: error.code
+          - type: fieldAbsent
+            path: error.param
+          - type: fieldAbsent
+            path: error.decline_code
+
+    - id: detachAgain
+      node: detachPaymentMethod
+      dependsOn: [reattach]
+      description: Detach the card a second time
+      values:
+        paymentMethodId: {from: card.paymentMethodId}
+      expectFailure:
+        status: [400]
+        description: not attached, so it can't be detached
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: error.type == "invalid_request_error"
+          - type: fieldAbsent
+            path: error.code
+          - type: fieldAbsent
+            path: error.param
+          - type: fieldAbsent
+            path: error.decline_code
+
+    - id: detachedRead
+      node: getCustomerPaymentMethod
+      dependsOn: [detachAgain]
+      isGoal: true
+      description: The detached card, read under the customer
+      values:
+        customerId: {from: customer.customerId}
+        paymentMethodId: {from: card.paymentMethodId}
+      expectFailure:
+        status: [404]
+        description: not the customer's any more, on param customer
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: error.type == "invalid_request_error" && error.param == "customer"
+          - type: fieldAbsent
+            path: error.code
+          - type: fieldAbsent
+            path: error.decline_code

@@ -49,7 +49,7 @@ concepts:
     description: >-
       Every object this package creates carries metadata[source]=aat-stripe. The guard plans count
       those and fail on any left behind; objects from earlier projects on the same account are left
-      alone. Proven by plans/zz-guard/customers.yaml.
+      alone. Proven by the plans in plans/zz-guard/.
     applies_to: [source, ourCount, ourCustomers]
 
   customers:
@@ -90,8 +90,10 @@ concepts:
       A card that requires 3D Secure stops the PaymentIntent at requires_action, with a redirect_to_url next action
       when a return_url is given, and it can't be captured until the customer authenticates (400
       payment_intent_unexpected_state). With error_on_requires_action, the confirmation is 402 authentication_required
-      (decline code authentication_not_handled) and leaves the PaymentIntent open in requires_payment_method. Proven by
-      plans/payments/three-d-secure.yaml.
+      (decline code authentication_not_handled) and leaves the PaymentIntent open in requires_payment_method. Charged
+      off session, a saved card that requires authentication is 402 authentication_required with decline code
+      authentication_required, and leaves its PaymentIntent open the same way. Proven by
+      plans/payments/three-d-secure.yaml and plans/setup-intents/authentication.yaml.
     applies_to: [nextActionType, returnUrl, errorOnRequiresAction]
     constraint: a refused confirmation still leaves a PaymentIntent to cancel
 
@@ -110,3 +112,49 @@ concepts:
       payment_intent_invalid_parameter ("not eligible for the requested card features"), and incrementing an
       authorization that didn't ask for it is 400 with no code. Proven by plans/payments/increment-authorization.yaml.
     applies_to: [requestIncrementalAuthorization]
+
+  search:
+    description: >-
+      Search endpoints take a query in Stripe's search language, such as email:'ada@example.com', and page with page, the
+      previous response's next_page. Search lags behind lists: a new customer took 16 to 20 seconds to appear in two
+      runs, while a list shows it at once. A field the resource can't be searched by is 400 invalid_request_error with
+      no code or param. Proven by plans/customers/update-and-search.yaml.
+    applies_to: [query, page, nextPage]
+    constraint: poll a search until it finds a new object, or read a list instead
+
+  customerBalance:
+    description: >-
+      A customer's balance changes through balance transactions. A negative amount is a credit and a positive one a
+      debit; each is recorded as type adjustment, with the balance after it as ending_balance, and the list comes newest
+      first. A transaction's description and metadata can change afterward, and the API has no delete for one. Proven by
+      plans/customers/balance-transactions.yaml.
+    applies_to: [customerBalanceTransactionId, amount, endingBalance, latestEndingBalance, balance]
+
+  taxIds:
+    description: >-
+      A customer's tax ID takes its country from its value, and an eu_vat number starts with verification pending. A
+      value its type rejects is 400 tax_id_invalid on param value, and deleting a deleted tax ID is 404
+      resource_missing on param id. Proven by plans/customers/tax-ids.yaml.
+    applies_to: [taxId, type, value, country, verificationStatus]
+
+  paymentMethods:
+    description: >-
+      A PaymentMethod made from a test token such as tok_visa belongs to no customer until it is attached. Attaching a
+      test ID such as pm_card_mastercard makes a new PaymentMethod with an ID of its own. Detaching is for good:
+      attaching it again and detaching it again are both 400 invalid_request_error with no code, and reading it under
+      the customer is 404 on param customer. Proven by plans/payment-methods/attach-and-detach.yaml.
+    applies_to: [paymentMethodId, customerId, cardBrand, cardLast4, billingName, allowRedisplay]
+    constraint: use the ID an attach returns, not the test ID it was sent
+
+  setupIntents:
+    description: >-
+      A SetupIntent saves a payment method for later without charging it. Confirmed with a card for off_session usage,
+      it succeeds with one setup attempt, and the customer holds a new PaymentMethod that pays a PaymentIntent confirmed
+      off session. Without a card it waits in requires_payment_method, can be updated, and succeeds when confirmed with
+      one. It can be canceled only while requires_payment_method, requires_confirmation, or requires_action; a
+      succeeded or canceled one is 400 setup_intent_unexpected_state. A card that needs authentication on setup stops
+      it at requires_action with a redirect_to_url next action, and a declined card is 402 card_declined that still
+      leaves the SetupIntent open. Proven by plans/setup-intents/saved-card.yaml,
+      plans/setup-intents/update-confirm-cancel.yaml, and plans/setup-intents/authentication.yaml.
+    applies_to: [setupIntentId, status, usage, latestAttemptId, cancellationReason, offSession]
+    constraint: read a SetupIntent's status before canceling it, and cancel only one still open

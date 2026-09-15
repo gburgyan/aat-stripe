@@ -1,0 +1,20 @@
+adapter: listPaymentMethods
+protocol: http
+
+request:
+  method: GET
+  path: /v1/payment_methods?limit={{limit}}{{?customerId}}&customer={{customerId}}{{/customerId}}{{?type}}&type={{type}}{{/type}}{{?startingAfter}}&starting_after={{startingAfter}}{{/startingAfter}}
+
+response:
+  extract:
+    paymentMethods:
+      path: data
+      fields:
+        id: id
+        type: type
+        cardBrand: card.brand
+    count: 'data.#'
+    hasMore: has_more
+    lastId:
+      path: data.@reverse.0.id
+      default: ""

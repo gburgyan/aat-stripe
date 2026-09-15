@@ -6,11 +6,12 @@ own OpenAPI spec.
 
 **Status:** in progress. Covered so far:
 - the account, its balance and balance settings, reference data, and events
-- customers, and idempotent requests
+- customers, with updates, search, balance transactions, and tax IDs, and idempotent requests
 - card payments with PaymentIntents: every capture path, every decline, 3D Secure, and refunds
+- saved cards: PaymentMethods, SetupIntents, and charging a saved card off session
 
-Customers' balances, saved payment methods, SetupIntents, ACH, risk, Billing on test clocks, Checkout, Connect,
-Terminal, Issuing, Tax, and the rest of what test mode can drive come next.
+ACH, risk, Billing on test clocks, Checkout, Connect, Terminal, Issuing, Tax, and the rest of what test mode can drive
+come next.
 
 ## Getting started
 
@@ -63,10 +64,14 @@ otherwise.
 - **Declined Card** ([workflow](workflows/declined-card.yaml)) creates a PaymentIntent without a card. The `decline`
   slot confirms it with a card that fails, and asserts Stripe's exact error. The PaymentIntent stays open with the
   decline recorded, and a working card pays it.
+- **Saved Card** ([workflow](workflows/saved-card.yaml)) saves a customer's card with a SetupIntent confirmed for
+  off-session use. It checks the one setup attempt and the PaymentMethod the customer now holds, then charges that
+  PaymentMethod with no customer present.
 - **Recipes:** the plans in [`plans/payments/`](plans/payments/) and [`plans/declines/`](plans/declines/) are mostly
-  recipes of a few lines that choose a slot.
+  recipes of a few lines that choose a slot, and [saved-card](plans/setup-intents/saved-card.yaml) names its workflow.
 - **Layers** ([`layers/`](layers/)) swap the card brand, the currency, or the amount without editing a plan.
-- **Full plans:** refunds, 3D Secure, incremental authorization, updates, and the guards.
+- **Full plans:** refunds, 3D Secure, incremental authorization, updates, customer search, balances, and tax IDs,
+  PaymentMethods, SetupIntents' states and refusals, and the guards.
 
 ## What's exercised
 
@@ -86,18 +91,28 @@ otherwise.
 | `GET /v1/tax_codes/{id}` | `getTaxCode` | [tax-codes](plans/reference/tax-codes.yaml) |
 | `GET /v1/events` | `listEvents` | [events](plans/account/events.yaml), [account-default](drift/account-default.yaml) |
 | `GET /v1/events/{id}` | `getEvent` | [events](plans/account/events.yaml), [account-default](drift/account-default.yaml) |
-| `POST /v1/customers` | `createCustomer` | [lifecycle](plans/customers/lifecycle.yaml), [replay](plans/idempotency/replay.yaml), [conflict](plans/idempotency/conflict.yaml), every payment plan |
+| `POST /v1/customers` | `createCustomer` | [lifecycle](plans/customers/lifecycle.yaml), [replay](plans/idempotency/replay.yaml), [conflict](plans/idempotency/conflict.yaml), every payment, PaymentMethod, and SetupIntent plan |
 | `GET /v1/customers/{customer}` | `getCustomer` | [lifecycle](plans/customers/lifecycle.yaml), [conflict](plans/idempotency/conflict.yaml) |
+| `POST /v1/customers/{customer}` | `updateCustomer` | [update-and-search](plans/customers/update-and-search.yaml) |
 | `GET /v1/customers` | `listCustomers` | [lifecycle](plans/customers/lifecycle.yaml), [customers guard](plans/zz-guard/customers.yaml) |
+| `GET /v1/customers/search` | `searchCustomers` | [update-and-search](plans/customers/update-and-search.yaml), polled |
 | `DELETE /v1/customers/{customer}` | `deleteCustomer` | [lifecycle](plans/customers/lifecycle.yaml), and cleanup after every plan that creates a customer |
-| `POST /v1/payment_intents` | `createPaymentIntent` | every plan in [payments](plans/payments/), [declines](plans/declines/), and [refunds](plans/refunds/) |
+| `POST /v1/customers/{customer}/balance_transactions` | `createCustomerBalanceTransaction` | [balance-transactions](plans/customers/balance-transactions.yaml) |
+| `GET /v1/customers/{customer}/balance_transactions/{transaction}` | `getCustomerBalanceTransaction` | [balance-transactions](plans/customers/balance-transactions.yaml) |
+| `POST /v1/customers/{customer}/balance_transactions/{transaction}` | `updateCustomerBalanceTransaction` | [balance-transactions](plans/customers/balance-transactions.yaml) |
+| `GET /v1/customers/{customer}/balance_transactions` | `listCustomerBalanceTransactions` | [balance-transactions](plans/customers/balance-transactions.yaml) |
+| `POST /v1/customers/{customer}/tax_ids` | `createTaxId` | [tax-ids](plans/customers/tax-ids.yaml) |
+| `GET /v1/customers/{customer}/tax_ids/{id}` | `getTaxId` | [tax-ids](plans/customers/tax-ids.yaml) |
+| `GET /v1/customers/{customer}/tax_ids` | `listTaxIds` | [tax-ids](plans/customers/tax-ids.yaml) |
+| `DELETE /v1/customers/{customer}/tax_ids/{id}` | `deleteTaxId` | [tax-ids](plans/customers/tax-ids.yaml), and cleanup |
+| `POST /v1/payment_intents` | `createPaymentIntent` | every plan in [payments](plans/payments/), [declines](plans/declines/), and [refunds](plans/refunds/), [saved-card](plans/setup-intents/saved-card.yaml), [authentication](plans/setup-intents/authentication.yaml) |
 | `GET /v1/payment_intents/{intent}` | `getPaymentIntent` | every Card Payment and Declined Card plan, [full-refund](plans/refunds/full-refund.yaml), and cleanup |
 | `POST /v1/payment_intents/{intent}` | `updatePaymentIntent` | [update-and-list](plans/payments/update-and-list.yaml) |
 | `POST /v1/payment_intents/{intent}/confirm` | `confirmPaymentIntent` | every plan in [declines](plans/declines/) |
 | `POST /v1/payment_intents/{intent}/capture` | `capturePaymentIntent` | [manual-capture](plans/payments/manual-capture.yaml), [partial-capture](plans/payments/partial-capture.yaml), [three-d-secure](plans/payments/three-d-secure.yaml) |
-| `POST /v1/payment_intents/{intent}/cancel` | `cancelPaymentIntent` | [cancel-authorization](plans/payments/cancel-authorization.yaml), [three-d-secure](plans/payments/three-d-secure.yaml), [increment-authorization](plans/payments/increment-authorization.yaml), and cleanup |
+| `POST /v1/payment_intents/{intent}/cancel` | `cancelPaymentIntent` | [cancel-authorization](plans/payments/cancel-authorization.yaml), [three-d-secure](plans/payments/three-d-secure.yaml), [increment-authorization](plans/payments/increment-authorization.yaml), [authentication](plans/setup-intents/authentication.yaml), and cleanup |
 | `POST /v1/payment_intents/{intent}/increment_authorization` | `incrementAuthorization` | [increment-authorization](plans/payments/increment-authorization.yaml), refused |
-| `GET /v1/payment_intents` | `listPaymentIntents` | [update-and-list](plans/payments/update-and-list.yaml), [three-d-secure](plans/payments/three-d-secure.yaml), [PaymentIntents guard](plans/zz-guard/payment-intents.yaml) |
+| `GET /v1/payment_intents` | `listPaymentIntents` | [update-and-list](plans/payments/update-and-list.yaml), [three-d-secure](plans/payments/three-d-secure.yaml), [authentication](plans/setup-intents/authentication.yaml), [PaymentIntents guard](plans/zz-guard/payment-intents.yaml) |
 | `POST /v1/refunds` | `createRefund` | every plan in [refunds](plans/refunds/) |
 | `GET /v1/refunds/{refund}` | `getRefund` | [refund-reads](plans/refunds/refund-reads.yaml) |
 | `POST /v1/refunds/{refund}` | `updateRefund` | [refund-reads](plans/refunds/refund-reads.yaml) |
@@ -105,6 +120,21 @@ otherwise.
 | `GET /v1/charges/{charge}` | `getCharge` | [partial-refund](plans/refunds/partial-refund.yaml), [refund-reads](plans/refunds/refund-reads.yaml) |
 | `POST /v1/charges/{charge}` | `updateCharge` | [refund-reads](plans/refunds/refund-reads.yaml) |
 | `GET /v1/charges` | `listCharges` | [refund-reads](plans/refunds/refund-reads.yaml) |
+| `POST /v1/payment_methods` | `createPaymentMethod` | [attach-and-detach](plans/payment-methods/attach-and-detach.yaml) |
+| `GET /v1/payment_methods/{payment_method}` | `getPaymentMethod` | [attach-and-detach](plans/payment-methods/attach-and-detach.yaml) |
+| `POST /v1/payment_methods/{payment_method}` | `updatePaymentMethod` | [attach-and-detach](plans/payment-methods/attach-and-detach.yaml) |
+| `POST /v1/payment_methods/{payment_method}/attach` | `attachPaymentMethod` | [attach-and-detach](plans/payment-methods/attach-and-detach.yaml), [authentication](plans/setup-intents/authentication.yaml) |
+| `POST /v1/payment_methods/{payment_method}/detach` | `detachPaymentMethod` | [attach-and-detach](plans/payment-methods/attach-and-detach.yaml) |
+| `GET /v1/payment_methods` | `listPaymentMethods` | [attach-and-detach](plans/payment-methods/attach-and-detach.yaml) |
+| `GET /v1/customers/{customer}/payment_methods` | `listCustomerPaymentMethods` | [attach-and-detach](plans/payment-methods/attach-and-detach.yaml) |
+| `GET /v1/customers/{customer}/payment_methods/{payment_method}` | `getCustomerPaymentMethod` | [attach-and-detach](plans/payment-methods/attach-and-detach.yaml), [saved-card](plans/setup-intents/saved-card.yaml) |
+| `POST /v1/setup_intents` | `createSetupIntent` | every plan in [setup-intents](plans/setup-intents/) |
+| `GET /v1/setup_intents/{intent}` | `getSetupIntent` | [update-confirm-cancel](plans/setup-intents/update-confirm-cancel.yaml), and cleanup |
+| `POST /v1/setup_intents/{intent}` | `updateSetupIntent` | [update-confirm-cancel](plans/setup-intents/update-confirm-cancel.yaml) |
+| `POST /v1/setup_intents/{intent}/confirm` | `confirmSetupIntent` | [update-confirm-cancel](plans/setup-intents/update-confirm-cancel.yaml) |
+| `POST /v1/setup_intents/{intent}/cancel` | `cancelSetupIntent` | [update-confirm-cancel](plans/setup-intents/update-confirm-cancel.yaml), [authentication](plans/setup-intents/authentication.yaml), and cleanup |
+| `GET /v1/setup_intents` | `listSetupIntents` | [update-confirm-cancel](plans/setup-intents/update-confirm-cancel.yaml), [authentication](plans/setup-intents/authentication.yaml), [SetupIntents guard](plans/zz-guard/setup-intents.yaml) |
+| `GET /v1/setup_attempts` | `listSetupAttempts` | [saved-card](plans/setup-intents/saved-card.yaml) |
 
 ## What Stripe does in test mode
 
@@ -132,13 +162,19 @@ Each item names the plan that asserts it. Items marked *probe* were seen in one-
   [cancel-authorization](plans/payments/cancel-authorization.yaml)
 - **3D Secure.** A card that requires it stops at `requires_action` with a `redirect_to_url` next action, and capturing
   it then is 400 `payment_intent_unexpected_state`. With `error_on_requires_action`, the create is 402
-  `authentication_required` with decline code `authentication_not_handled`.
-  [three-d-secure](plans/payments/three-d-secure.yaml)
-- **A refused create still makes a PaymentIntent.** The 3D Secure refusal and the incremental authorization refusal
-  each leave one open in `requires_payment_method`, and no success response names it. The plans find it under the
-  customer and cancel it; the PaymentIntents guard caught the first one a plan missed.
+  `authentication_required` with decline code `authentication_not_handled`. Charged off session, a saved card that
+  requires authentication is 402 `authentication_required` with decline code `authentication_required`.
+  [three-d-secure](plans/payments/three-d-secure.yaml), [authentication](plans/setup-intents/authentication.yaml)
+- **A refused create still makes an object.** Each of these leaves a PaymentIntent open in `requires_payment_method`:
+  - the 3D Secure refusal
+  - the incremental authorization refusal
+  - the off-session authentication refusal
+
+  A declined SetupIntent create leaves its SetupIntent open the same way. No success response names these objects.
+  The plans find them under the customer and cancel them; the PaymentIntents guard caught the first one a plan missed.
   [three-d-secure](plans/payments/three-d-secure.yaml),
-  [increment-authorization](plans/payments/increment-authorization.yaml)
+  [increment-authorization](plans/payments/increment-authorization.yaml),
+  [authentication](plans/setup-intents/authentication.yaml)
 - **Refunds.** Card refunds succeed at once. Two partial refunds add up to the payment and leave the charge refunded.
   Stripe refuses:
   - more than was paid: 400 on param `amount`, with no code
@@ -162,6 +198,40 @@ Each item names the plan that asserts it. Items marked *probe* were seen in one-
   [balance-settings](plans/account/balance-settings.yaml)
 - **Deleted customers.** A deleted customer drops out of the list but still reads 200, with only `id`, `object`, and
   `deleted: true`; deleting it again is 404 `resource_missing` on param `id`. [lifecycle](plans/customers/lifecycle.yaml)
+- **Search lags behind lists.** A new customer took 16 to 20 seconds to appear in customer search in two runs, while a
+  list shows it at once, so the plan polls with `repeat.until`. An update changes only the fields it sends. Searching
+  by a field customers can't be searched by is 400 `invalid_request_error` with no `code` or `param`.
+  [update-and-search](plans/customers/update-and-search.yaml)
+  - *Probe:* at the moment a search by email alone found the new customer, one by email and `metadata['source']`
+    together found nothing.
+- **Customer balance.** A credit of 500 leaves a balance of −500, and a debit of 700 then leaves 200. Each is recorded
+  as type `adjustment` with the balance after it as `ending_balance`, and the list comes newest first. A credit's
+  description and note can change afterward. [balance-transactions](plans/customers/balance-transactions.yaml)
+  - *Probe:* an adjustment in EUR on a USD customer was accepted.
+- **Tax IDs.** A German `eu_vat` number takes its country from the value and starts with verification `pending`. A
+  value that isn't a VAT number is 400 `tax_id_invalid` on param `value`, and deleting a deleted tax ID is 404
+  `resource_missing` on param `id`. [tax-ids](plans/customers/tax-ids.yaml)
+  - *Probe:* `DE000000000` and `DE111111111` were both still `pending` 3 seconds later.
+- **PaymentMethods.** A card from `tok_visa` belongs to no customer until it is attached. Attaching the test ID
+  `pm_card_mastercard` makes a new PaymentMethod with an ID of its own. Detaching is for good:
+  - attaching it again is 400 `invalid_request_error` with no `code`
+  - detaching it again is refused the same way
+  - reading it under the customer is 404 on param `customer`
+
+  [attach-and-detach](plans/payment-methods/attach-and-detach.yaml)
+  - *Probe:* a raw card number is 402 `invalid_request_error` ("generally unsafe"). Without a customer, the
+    PaymentMethods list is empty. A deleted customer's PaymentMethod still reads with the customer's ID.
+- **SetupIntents.** Confirmed with a card for off-session use, a SetupIntent succeeds with one setup attempt. The
+  customer then holds a new PaymentMethod that pays a PaymentIntent off session.
+  - **Without a card,** it waits in `requires_payment_method`, can be updated, and succeeds when confirmed with one.
+  - **Canceling works only while it is open.** A succeeded or canceled SetupIntent is 400
+    `setup_intent_unexpected_state` with no `param`.
+  - **A card that needs authentication on setup** stops it at `requires_action`, with a `redirect_to_url` next action.
+  - **A declined card** is 402 `card_declined` / `generic_decline`, with no `param`.
+
+  [saved-card](plans/setup-intents/saved-card.yaml),
+  [update-confirm-cancel](plans/setup-intents/update-confirm-cancel.yaml),
+  [authentication](plans/setup-intents/authentication.yaml)
 - **Events and API versions.** A new customer's `customer.created` event names the customer and the request that
   created it. Events are rendered at the account's default API version even when the request pinned another, and
   without a `Stripe-Version` header the response header names that same default. [events](plans/account/events.yaml),
@@ -177,17 +247,18 @@ Each item names the plan that asserts it. Items marked *probe* were seen in one-
 
 | Feature | In this package |
 |---|---|
-| Strict OpenAPI validation | Every node names its operation in Stripe's own spec, and `test` checks each request and response against it: 88 requests and 199 responses in a full batch, with 0 violations |
+| Strict OpenAPI validation | Every node names its operation in Stripe's own spec, and `test` checks each request and response against it: 118 requests and 279 responses in a full batch, with 0 violations |
 | Workflows, slots, and recipes | Card Payment's `capture` slot and Declined Card's `decline` slot, with most payment plans as recipes of a few lines |
 | Layers | Card brands, currencies (yen is zero-decimal), and amounts, each changing only the inputs it names |
-| Offsets on references | `amountToCapture: "{{authorize.amount - 500}}"`, and a refund of `"{{pay.amount + 1}}"` to prove the limit |
+| Offsets on references | `amountToCapture: "{{authorize.amount - 500}}"`, a refund of `"{{pay.amount + 1}}"` to prove the limit, and `endingBalance == "{{credit.endingBalance + 700}}"` |
 | Refusals checked in full | Every expected failure asserts `type`, `code`, `decline_code`, and `param`, exactly or with `fieldAbsent`, and a decline names its PaymentIntent |
-| Cleanup chains with `when` and `releasedBy` | A PaymentIntent's cleanup reads its status and cancels it only while it is open; a plan's own cancel releases it, and a replayed create registers no delete |
+| Cleanup chains with `when` and `releasedBy` | A PaymentIntent's or SetupIntent's cleanup reads its status and cancels it only while it is open; a plan's own cancel or delete releases it, and a replayed create registers no delete |
 | Selection filters that read earlier steps | `filter: 'objectId == "{{create.customerId}}"'` finds the customer's event, and `id != "{{create.paymentIntentId}}"` the PaymentIntent a refused create left open |
 | Inputs named for what they hold | `/v1/customers/{{customerId}}` fills the spec's `{customer}`, and `starting_after={{startingAfter}}` its query parameter |
 | Headers as outputs | `createCustomer` reads `Idempotent-Replayed`, `Original-Request`, `Request-Id`, and `Stripe-Version` |
 | Paging with `repeat.next` | Stripe lists page with `next: {startingAfter: lastId}` and stop on `until: hasMore == false` |
-| Guards | [`zz-guard/`](plans/zz-guard/) reads every page since `packageEpoch` and fails on a customer or open PaymentIntent of ours left behind |
+| Polling with `repeat.until` | Customer search, which lags behind lists, is read every 2 seconds `until: count >= 1` |
+| Guards | [`zz-guard/`](plans/zz-guard/) reads every page since `packageEpoch` and fails on a customer, an open PaymentIntent, or an open SetupIntent of ours left behind |
 | Environments | `_stripe` → `_pinned` → `test` → `test-ci`, and `account-default` beside them without the version header |
 | Error detection | A create answered with `livemode: true` fails the step |
 
@@ -221,7 +292,7 @@ aat-project.yaml     manifest
 env.yaml             environments
 graph.yaml           nodes, one per operation, and the workflow registry
 templates/           one request template per node
-workflows/           Card Payment and Declined Card, and their slots
+workflows/           Card Payment, Declined Card, and Saved Card, and the slots
 layers/              card brands, currencies, and amounts
 domain.yaml          verified concepts, each naming its plans
 plans/               plans the batch runs; zz-guard/ sorts last

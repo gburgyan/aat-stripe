@@ -1,0 +1,71 @@
+# Save a card now, charge it later. A SetupIntent confirmed for off-session use succeeds with one attempt, and the
+# customer gets a PaymentMethod of their own; a PaymentIntent then charges it off session, with no customer present.
+intent:
+  goal: offSession
+  description: A card saved with a SetupIntent pays later, off session
+
+execution:
+  steps:
+    - id: balance
+      node: getBalance
+      description: The balance, in test mode, before anything is created
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: livemode == false
+
+    - id: customer
+      node: createCustomer
+      dependsOn: [balance]
+      description: The customer whose card is saved
+
+    - id: setup
+      node: createSetupIntent
+      dependsOn: [customer]
+      description: Save the card for off-session payments
+      values:
+        confirm: true
+        usage: off_session
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: >-
+              livemode == false && status == "succeeded" && usage == "off_session" && paymentMethodId != "" &&
+              customerId == "{{customer.customerId}}" && latestAttemptId != "" && source == "aat-stripe"
+
+    - id: attempts
+      node: listSetupAttempts
+      description: The SetupIntent's attempts
+      values:
+        setupIntentId: {from: setup.setupIntentId}
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: count == 1 && latestStatus == "succeeded" && lastId == "{{setup.latestAttemptId}}"
+
+    - id: saved
+      node: getCustomerPaymentMethod
+      description: The saved card, under the customer
+      values:
+        customerId: {from: customer.customerId}
+        paymentMethodId: {from: setup.paymentMethodId}
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: customerId == "{{customer.customerId}}" && cardBrand == "visa" && paymentMethodId != "pm_card_visa"
+
+    - id: offSession
+      node: createPaymentIntent
+      dependsOn: [saved, attempts]
+      isGoal: true
+      description: Charge the saved card with no customer present
+      values:
+        paymentMethod: {from: setup.paymentMethodId}
+        confirm: true
+        offSession: true
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: >-
+              livemode == false && status == "succeeded" && amountReceived == amount &&
+              paymentMethodId == "{{setup.paymentMethodId}}" && cardBrand == expectedBrand

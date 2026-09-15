@@ -1,0 +1,70 @@
+# A customer updated and found by search. The update changes only what it names, and search, which is eventually
+# consistent, finds the customer by email after some polling (16 seconds in a probe). Searching by a field customers
+# can't be searched by is 400 with no code.
+intent:
+  goal: found
+  description: A customer's details are updated, and search finds the customer by email
+
+execution:
+  steps:
+    - id: create
+      node: createCustomer
+      description: A customer tagged metadata[source]=aat-stripe
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: livemode == false && source == "aat-stripe"
+
+    - id: update
+      node: updateCustomer
+      description: Change the name, description, phone, locales, and note
+      values:
+        customerId: {from: create.customerId}
+        name: AAT Stripe updated
+        description: Updated by aat-stripe
+        phone: "+18005550100"
+        preferredLocales: {value: [en, fr]}
+        note: updated
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: >-
+              name == "AAT Stripe updated" && description == "Updated by aat-stripe" && phone == "+18005550100" &&
+              preferredLocaleCount == 2 && note == "updated" && email == "{{create.email}}" && balance == 0
+
+    - id: found
+      node: searchCustomers
+      dependsOn: [update]
+      isGoal: true
+      description: Search for the customer by email until the index has it
+      values:
+        query: "email:'{{create.email}}'"
+      repeat:
+        until: count >= 1
+        interval: 2s
+        max: 45
+        timeout: 100s
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: count == 1 && firstId == "{{create.customerId}}"
+
+    - id: badField
+      node: searchCustomers
+      dependsOn: [found]
+      description: Search by a field customers can't be searched by
+      values:
+        query: "emial:'{{create.email}}'"
+      expectFailure:
+        status: [400]
+        description: an unsupported search field
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: error.type == "invalid_request_error"
+          - type: fieldAbsent
+            path: error.code
+          - type: fieldAbsent
+            path: error.param
+          - type: fieldAbsent
+            path: error.decline_code

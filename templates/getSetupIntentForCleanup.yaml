@@ -1,0 +1,11 @@
+adapter: getSetupIntentForCleanup
+protocol: http
+
+request:
+  method: GET
+  path: /v1/setup_intents/{{setupIntentId}}
+
+response:
+  extract:
+    setupIntentId: id
+    status: status

@@ -1,0 +1,134 @@
+# A SetupIntent's states. Created without a card, it waits in requires_payment_method and can be updated; confirmed with
+# a card it succeeds with a new PaymentMethod, after which canceling is 400 setup_intent_unexpected_state. Another,
+# canceled while open, ends canceled with the reason given, and canceling it again is refused the same way.
+intent:
+  goal: listed
+  description: A SetupIntent is updated and confirmed, another is canceled, and a closed one can't be canceled
+
+execution:
+  steps:
+    - id: customer
+      node: createCustomer
+      description: A customer tagged metadata[source]=aat-stripe
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: livemode == false && source == "aat-stripe"
+
+    - id: open
+      node: createSetupIntent
+      dependsOn: [customer]
+      description: A SetupIntent without a card yet
+      values:
+        paymentMethod: {}
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: livemode == false && status == "requires_payment_method" && paymentMethodId == "" && source == "aat-stripe"
+
+    - id: described
+      node: updateSetupIntent
+      description: Describe it and add a note
+      values:
+        setupIntentId: {from: open.setupIntentId}
+        description: AAT Stripe setup
+        note: updated
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: description == "AAT Stripe setup" && note == "updated" && status == "requires_payment_method"
+
+    - id: confirmed
+      node: confirmSetupIntent
+      dependsOn: [described]
+      description: Confirm it with a Mastercard
+      values:
+        setupIntentId: {from: open.setupIntentId}
+        paymentMethod: pm_card_mastercard
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: status == "succeeded" && paymentMethodId != "" && paymentMethodId != "pm_card_mastercard" && latestAttemptId != ""
+
+    - id: readBack
+      node: getSetupIntent
+      dependsOn: [confirmed]
+      description: The confirmed SetupIntent read back, with its description and note kept
+      values:
+        setupIntentId: {from: open.setupIntentId}
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: >-
+              status == "succeeded" && paymentMethodId == "{{confirmed.paymentMethodId}}" &&
+              latestAttemptId == "{{confirmed.latestAttemptId}}" && description == "AAT Stripe setup" && note == "updated"
+
+    - id: cancelSucceeded
+      node: cancelSetupIntent
+      dependsOn: [readBack]
+      description: Cancel the succeeded SetupIntent
+      values:
+        setupIntentId: {from: open.setupIntentId}
+      expectFailure:
+        status: [400]
+        description: setup_intent_unexpected_state, since it succeeded
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: error.type == "invalid_request_error" && error.code == "setup_intent_unexpected_state"
+          - type: fieldAbsent
+            path: error.param
+          - type: fieldAbsent
+            path: error.decline_code
+
+    - id: second
+      node: createSetupIntent
+      dependsOn: [cancelSucceeded]
+      description: Another SetupIntent without a card
+      values:
+        paymentMethod: {}
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: status == "requires_payment_method"
+
+    - id: canceled
+      node: cancelSetupIntent
+      description: Cancel it while it is open
+      values:
+        setupIntentId: {from: second.setupIntentId}
+        cancellationReason: abandoned
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: status == "canceled" && cancellationReason == "abandoned"
+
+    - id: cancelAgain
+      node: cancelSetupIntent
+      dependsOn: [canceled]
+      description: Cancel it a second time
+      values:
+        setupIntentId: {from: second.setupIntentId}
+      expectFailure:
+        status: [400]
+        description: setup_intent_unexpected_state, since it is already canceled
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: error.type == "invalid_request_error" && error.code == "setup_intent_unexpected_state"
+          - type: fieldAbsent
+            path: error.param
+          - type: fieldAbsent
+            path: error.decline_code
+
+    - id: listed
+      node: listSetupIntents
+      dependsOn: [cancelAgain]
+      isGoal: true
+      description: The customer's SetupIntents
+      values:
+        customerId: {from: customer.customerId}
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: count == 2 && ourCount == 2 && ourOpenCount == 0 && lastId == "{{open.setupIntentId}}"

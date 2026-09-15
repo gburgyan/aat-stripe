@@ -1377,6 +1377,891 @@ nodes:
       - name: note
         type: string
 
+  # --- Customers, continued --------------------------------------------------------------------
+
+  updateCustomer:
+    description: >-
+      Update a customer (POST /v1/customers/{customer}, 200): its name, email, description, phone,
+      preferred locales, and metadata note. Only the fields given change.
+    adapter: updateCustomer
+    tags: [customers]
+    oas:
+      operationId: PostCustomersCustomer
+    inputs:
+      - name: customerId
+        type: string
+        default:
+          from: createCustomer.customerId
+      - name: name
+        type: string
+        optional: true
+      - name: email
+        type: string
+        optional: true
+      - name: description
+        type: string
+        optional: true
+      - name: phone
+        type: string
+        optional: true
+      - name: preferredLocales
+        type: string[]
+        optional: true
+      - name: note
+        type: string
+        optional: true
+        description: Stored as metadata[note]
+      - name: idempotencyKey
+        type: string
+        optional: true
+        default: "{{uuid}}"
+    outputs:
+      - name: customerId
+        type: string
+        display: Customer
+      - name: name
+        type: string
+      - name: email
+        type: string
+      - name: description
+        type: string
+      - name: phone
+        type: string
+      - name: note
+        type: string
+      - name: balance
+        type: integer
+        description: The customer's balance in the smallest currency unit; negative is a credit
+      - name: preferredLocaleCount
+        type: integer
+
+  searchCustomers:
+    description: >-
+      Search customers with Stripe's search language (GET /v1/customers/search, 200), such as
+      email:'ada@example.com'. Search is eventually consistent: a new customer took 16 seconds and 8
+      reads to appear, so plans poll it; lists are up to date at once. A field customers can't be
+      searched by is 400 with no code. Pages turn with page, the previous response's next_page.
+    adapter: searchCustomers
+    tags: [customers, search]
+    oas:
+      operationId: GetCustomersSearch
+    inputs:
+      - name: query
+        type: string
+        description: A search query, such as email:'ada@example.com'
+      - name: limit
+        type: integer
+        default: 10
+        constraints:
+          min: 1
+          max: 100
+      - name: page
+        type: string
+        optional: true
+        description: The previous response's nextPage
+    outputs:
+      - name: customers
+        type: customer[]
+        elementFields:
+          - name: id
+            type: string
+          - name: email
+            type: string
+      - name: count
+        type: integer
+        display: Found
+      - name: hasMore
+        type: boolean
+      - name: nextPage
+        type: string
+        description: The cursor for the next page; "" on the last
+      - name: firstId
+        type: string
+        description: The first customer found; "" when none is
+
+  createCustomerBalanceTransaction:
+    description: >-
+      Adjust a customer's balance (POST /v1/customers/{customer}/balance_transactions, 200). A
+      negative amount is a credit the customer's next invoices use, and a positive one a debit
+      added to what they owe; either is recorded as type adjustment, with the balance after it as
+      ending_balance. Balance transactions can't be deleted.
+    adapter: createCustomerBalanceTransaction
+    tags: [customers, balance]
+    oas:
+      operationId: PostCustomersCustomerBalanceTransactions
+    inputs:
+      - name: customerId
+        type: string
+        default:
+          from: createCustomer.customerId
+      - name: amount
+        type: integer
+        description: Negative for a credit, positive for a debit
+      - name: currency
+        type: string
+        default: usd
+      - name: description
+        type: string
+        optional: true
+      - name: idempotencyKey
+        type: string
+        optional: true
+        default: "{{uuid}}"
+    outputs: &customerBalanceTransactionOutputs
+      - name: customerBalanceTransactionId
+        type: string
+        display: Balance transaction
+      - name: type
+        type: string
+        description: adjustment for a manual one; others come from invoices, credit notes, and Checkout
+      - name: amount
+        type: integer
+      - name: currency
+        type: string
+      - name: endingBalance
+        type: integer
+        display: Balance after
+      - name: description
+        type: string
+      - name: note
+        type: string
+      - name: source
+        type: string
+
+  getCustomerBalanceTransaction:
+    description: Read one of a customer's balance transactions (GET /v1/customers/{customer}/balance_transactions/{transaction}, 200).
+    adapter: getCustomerBalanceTransaction
+    tags: [customers, balance]
+    oas:
+      operationId: GetCustomersCustomerBalanceTransactionsTransaction
+    inputs:
+      - name: customerId
+        type: string
+        default:
+          from: createCustomer.customerId
+      - name: customerBalanceTransactionId
+        type: string
+        default:
+          from: createCustomerBalanceTransaction.customerBalanceTransactionId
+    outputs: *customerBalanceTransactionOutputs
+
+  updateCustomerBalanceTransaction:
+    description: >-
+      Update a customer balance transaction's description and metadata note (POST
+      /v1/customers/{customer}/balance_transactions/{transaction}, 200); its amount can't change.
+    adapter: updateCustomerBalanceTransaction
+    tags: [customers, balance]
+    oas:
+      operationId: PostCustomersCustomerBalanceTransactionsTransaction
+    inputs:
+      - name: customerId
+        type: string
+        default:
+          from: createCustomer.customerId
+      - name: customerBalanceTransactionId
+        type: string
+        default:
+          from: createCustomerBalanceTransaction.customerBalanceTransactionId
+      - name: description
+        type: string
+        optional: true
+      - name: note
+        type: string
+        optional: true
+    outputs: *customerBalanceTransactionOutputs
+
+  listCustomerBalanceTransactions:
+    description: Page through a customer's balance transactions (GET /v1/customers/{customer}/balance_transactions, 200), newest first.
+    adapter: listCustomerBalanceTransactions
+    tags: [customers, balance, pagination]
+    oas:
+      operationId: GetCustomersCustomerBalanceTransactions
+    inputs:
+      - name: customerId
+        type: string
+        default:
+          from: createCustomer.customerId
+      - name: limit
+        type: integer
+        default: 10
+        constraints:
+          min: 1
+          max: 100
+      - name: startingAfter
+        type: string
+        optional: true
+    outputs:
+      - name: transactions
+        type: customerBalanceTransaction[]
+        elementFields:
+          - name: id
+            type: string
+          - name: type
+            type: string
+          - name: amount
+            type: integer
+          - name: endingBalance
+            type: integer
+      - name: count
+        type: integer
+        display: Balance transactions
+      - name: hasMore
+        type: boolean
+      - name: lastId
+        type: string
+      - name: latestEndingBalance
+        type: integer
+        description: The newest transaction's ending balance, the customer's balance now; 0 with none
+
+  createTaxId:
+    description: >-
+      Add a tax ID to a customer (POST /v1/customers/{customer}/tax_ids, 200), such as an eu_vat
+      number. Its country comes from the value, and verification starts pending. A value the type
+      rejects is 400 tax_id_invalid on param value. Cleanup deletes it.
+    adapter: createTaxId
+    tags: [customers, tax]
+    oas:
+      operationId: PostCustomersCustomerTaxIds
+    inputs:
+      - name: customerId
+        type: string
+        default:
+          from: createCustomer.customerId
+      - name: type
+        type: string
+        default: eu_vat
+        description: One of Stripe's tax ID types, such as eu_vat, us_ein, or gb_vat
+      - name: value
+        type: string
+        default: DE000000000
+      - name: idempotencyKey
+        type: string
+        optional: true
+        default: "{{uuid}}"
+    outputs: &taxIdOutputs
+      - name: taxId
+        type: string
+        display: Tax ID
+      - name: type
+        type: string
+      - name: value
+        type: string
+      - name: country
+        type: string
+      - name: verificationStatus
+        type: string
+        description: pending, verified, unverified, or unavailable
+      - name: customerId
+        type: string
+    cleanup: deleteTaxId
+
+  getTaxId:
+    description: Read one of a customer's tax IDs (GET /v1/customers/{customer}/tax_ids/{id}, 200).
+    adapter: getTaxId
+    tags: [customers, tax]
+    oas:
+      operationId: GetCustomersCustomerTaxIdsId
+    inputs:
+      - name: customerId
+        type: string
+        default:
+          from: createCustomer.customerId
+      - name: taxId
+        type: string
+        default:
+          from: createTaxId.taxId
+    outputs: *taxIdOutputs
+
+  listTaxIds:
+    description: Page through a customer's tax IDs (GET /v1/customers/{customer}/tax_ids, 200).
+    adapter: listTaxIds
+    tags: [customers, tax, pagination]
+    oas:
+      operationId: GetCustomersCustomerTaxIds
+    inputs:
+      - name: customerId
+        type: string
+        default:
+          from: createCustomer.customerId
+      - name: limit
+        type: integer
+        default: 10
+        constraints:
+          min: 1
+          max: 100
+      - name: startingAfter
+        type: string
+        optional: true
+    outputs:
+      - name: taxIds
+        type: taxId[]
+        elementFields:
+          - name: id
+            type: string
+          - name: type
+            type: string
+          - name: value
+            type: string
+      - name: count
+        type: integer
+        display: Tax IDs
+      - name: hasMore
+        type: boolean
+      - name: lastId
+        type: string
+
+  deleteTaxId:
+    description: >-
+      Delete a customer's tax ID (DELETE /v1/customers/{customer}/tax_ids/{id}, 200, deleted: true).
+      Deleting it again is 404 resource_missing on param id. The cleanup for createTaxId.
+    adapter: deleteTaxId
+    tags: [customers, tax, cleanup]
+    oas:
+      operationId: DeleteCustomersCustomerTaxIdsId
+    inputs:
+      - name: customerId
+        type: string
+        default:
+          from: createCustomer.customerId
+      - name: taxId
+        type: string
+        default:
+          from: createTaxId.taxId
+    outputs:
+      - name: taxId
+        type: string
+        display: Deleted
+      - name: deleted
+        type: boolean
+
+  # --- PaymentMethods --------------------------------------------------------------------------
+
+  createPaymentMethod:
+    description: >-
+      Create a PaymentMethod (POST /v1/payment_methods, 200): a card from a test token such as
+      tok_visa. Sending a raw card number instead is refused (402 invalid_request_error, "generally
+      unsafe"). A new PaymentMethod belongs to no customer, and a PaymentMethod can't be deleted.
+    adapter: createPaymentMethod
+    tags: [payment-methods]
+    oas:
+      operationId: PostPaymentMethods
+    inputs:
+      - name: type
+        type: string
+        default: card
+      - name: cardToken
+        type: string
+        optional: true
+        default: tok_visa
+        description: A test card token, such as tok_visa or tok_mastercard
+      - name: billingName
+        type: string
+        optional: true
+      - name: billingEmail
+        type: string
+        optional: true
+      - name: idempotencyKey
+        type: string
+        optional: true
+        default: "{{uuid}}"
+    outputs: &paymentMethodOutputs
+      - name: paymentMethodId
+        type: string
+        display: PaymentMethod
+      - name: type
+        type: string
+      - name: livemode
+        type: boolean
+      - name: customerId
+        type: string
+        description: The customer it is attached to; "" for none
+      - name: cardBrand
+        type: string
+      - name: cardLast4
+        type: string
+      - name: cardCountry
+        type: string
+      - name: cardFunding
+        type: string
+      - name: billingName
+        type: string
+      - name: allowRedisplay
+        type: string
+        description: always, limited, or unspecified
+      - name: note
+        type: string
+      - name: source
+        type: string
+    errorDetection:
+      - path: livemode
+        rule: equals
+        value: true
+
+  getPaymentMethod:
+    description: Read a PaymentMethod by its pm_ ID (GET /v1/payment_methods/{payment_method}, 200).
+    adapter: getPaymentMethod
+    tags: [payment-methods]
+    oas:
+      operationId: GetPaymentMethodsPaymentMethod
+    inputs:
+      - name: paymentMethodId
+        type: string
+        default:
+          from: createPaymentMethod.paymentMethodId
+    outputs: *paymentMethodOutputs
+
+  updatePaymentMethod:
+    description: >-
+      Update a PaymentMethod (POST /v1/payment_methods/{payment_method}, 200): its billing name,
+      whether it may be shown again to its customer, and its metadata note.
+    adapter: updatePaymentMethod
+    tags: [payment-methods]
+    oas:
+      operationId: PostPaymentMethodsPaymentMethod
+    inputs:
+      - name: paymentMethodId
+        type: string
+        default:
+          from: createPaymentMethod.paymentMethodId
+      - name: billingName
+        type: string
+        optional: true
+      - name: allowRedisplay
+        type: string
+        optional: true
+      - name: note
+        type: string
+        optional: true
+      - name: idempotencyKey
+        type: string
+        optional: true
+        default: "{{uuid}}"
+    outputs: *paymentMethodOutputs
+
+  attachPaymentMethod:
+    description: >-
+      Attach a PaymentMethod to a customer (POST /v1/payment_methods/{payment_method}/attach, 200).
+      Attaching a test PaymentMethod such as pm_card_mastercard makes a new one with an ID of its
+      own. A PaymentMethod that was detached, or used without a customer, can't be attached again
+      (400, with no code).
+    adapter: attachPaymentMethod
+    tags: [payment-methods]
+    oas:
+      operationId: PostPaymentMethodsPaymentMethodAttach
+    inputs:
+      - name: paymentMethodId
+        type: string
+        default:
+          from: createPaymentMethod.paymentMethodId
+      - name: customerId
+        type: string
+        default:
+          from: createCustomer.customerId
+      - name: idempotencyKey
+        type: string
+        optional: true
+        default: "{{uuid}}"
+    outputs: *paymentMethodOutputs
+
+  detachPaymentMethod:
+    description: >-
+      Detach a PaymentMethod from its customer (POST /v1/payment_methods/{payment_method}/detach,
+      200), for good: it can't be attached again. Detaching one that isn't attached is 400 with no
+      code.
+    adapter: detachPaymentMethod
+    tags: [payment-methods]
+    oas:
+      operationId: PostPaymentMethodsPaymentMethodDetach
+    inputs:
+      - name: paymentMethodId
+        type: string
+        default:
+          from: createPaymentMethod.paymentMethodId
+    outputs: *paymentMethodOutputs
+
+  listPaymentMethods:
+    description: >-
+      Page through a customer's PaymentMethods of one type (GET /v1/payment_methods, 200), newest
+      first. Without a customer, the list is empty.
+    adapter: listPaymentMethods
+    tags: [payment-methods, pagination]
+    oas:
+      operationId: GetPaymentMethods
+    inputs: &paymentMethodListInputs
+      - name: limit
+        type: integer
+        default: 10
+        constraints:
+          min: 1
+          max: 100
+      - name: customerId
+        type: string
+        optional: true
+      - name: type
+        type: string
+        optional: true
+        default: card
+      - name: startingAfter
+        type: string
+        optional: true
+    outputs: &paymentMethodListOutputs
+      - name: paymentMethods
+        type: paymentMethod[]
+        elementFields:
+          - name: id
+            type: string
+          - name: type
+            type: string
+          - name: cardBrand
+            type: string
+      - name: count
+        type: integer
+        display: PaymentMethods
+      - name: hasMore
+        type: boolean
+      - name: lastId
+        type: string
+
+  listCustomerPaymentMethods:
+    description: Page through a customer's PaymentMethods (GET /v1/customers/{customer}/payment_methods, 200), newest first.
+    adapter: listCustomerPaymentMethods
+    tags: [payment-methods, customers, pagination]
+    oas:
+      operationId: GetCustomersCustomerPaymentMethods
+    inputs:
+      - name: customerId
+        type: string
+        default:
+          from: createCustomer.customerId
+      - name: limit
+        type: integer
+        default: 10
+        constraints:
+          min: 1
+          max: 100
+      - name: type
+        type: string
+        optional: true
+        default: card
+      - name: startingAfter
+        type: string
+        optional: true
+    outputs: *paymentMethodListOutputs
+
+  getCustomerPaymentMethod:
+    description: >-
+      Read one of a customer's PaymentMethods (GET
+      /v1/customers/{customer}/payment_methods/{payment_method}, 200). One detached from the customer
+      is 404 on param customer.
+    adapter: getCustomerPaymentMethod
+    tags: [payment-methods, customers]
+    oas:
+      operationId: GetCustomersCustomerPaymentMethodsPaymentMethod
+    inputs:
+      - name: customerId
+        type: string
+        default:
+          from: createCustomer.customerId
+      - name: paymentMethodId
+        type: string
+        default:
+          from: createPaymentMethod.paymentMethodId
+    outputs: *paymentMethodOutputs
+
+  # --- SetupIntents ----------------------------------------------------------------------------
+
+  createSetupIntent:
+    description: >-
+      Create a SetupIntent (POST /v1/setup_intents, 200), which saves a payment method for later
+      without charging it. Confirmed with a card for off_session usage it succeeds, and the customer
+      gets a new PaymentMethod, its own copy of a test card, that then pays off session. A card that
+      needs authentication on setup stops it at requires_action with a redirect_to_url next action. A
+      declined card is 402 card_error and still leaves the SetupIntent open in
+      requires_payment_method. Cleanup reads it and cancels it while it is open.
+    adapter: createSetupIntent
+    tags: [setup-intents]
+    oas:
+      operationId: PostSetupIntents
+    inputs:
+      - name: customerId
+        type: string
+        default:
+          from: createCustomer.customerId
+      - name: paymentMethod
+        type: string
+        optional: true
+        default: pm_card_visa
+        description: A payment method ID, or a test one such as pm_card_visa; {} for none yet
+      - name: paymentMethodTypes
+        type: string[]
+        default:
+          value: [card]
+      - name: confirm
+        type: boolean
+        optional: true
+      - name: usage
+        type: string
+        optional: true
+        description: on_session or off_session (the default)
+      - name: returnUrl
+        type: string
+        optional: true
+      - name: description
+        type: string
+        optional: true
+      - name: idempotencyKey
+        type: string
+        optional: true
+        default: "{{uuid}}"
+    outputs: &setupIntentOutputs
+      - name: setupIntentId
+        type: string
+        display: SetupIntent
+      - name: status
+        type: string
+        display: Status
+      - name: usage
+        type: string
+      - name: livemode
+        type: boolean
+      - name: customerId
+        type: string
+      - name: paymentMethodId
+        type: string
+        description: The saved PaymentMethod; "" before one is set
+      - name: latestAttemptId
+        type: string
+        description: The setatt_ ID of the latest attempt; "" before one
+      - name: nextActionType
+        type: string
+      - name: lastSetupErrorCode
+        type: string
+      - name: lastSetupErrorDeclineCode
+        type: string
+      - name: cancellationReason
+        type: string
+      - name: description
+        type: string
+      - name: note
+        type: string
+      - name: source
+        type: string
+    errorDetection:
+      - path: livemode
+        rule: equals
+        value: true
+    cleanup:
+      node: getSetupIntentForCleanup
+      releasedBy: [cancelSetupIntent]
+
+  getSetupIntent:
+    description: Read a SetupIntent by its seti_ ID (GET /v1/setup_intents/{intent}, 200).
+    adapter: getSetupIntent
+    tags: [setup-intents]
+    oas:
+      operationId: GetSetupIntentsIntent
+    inputs:
+      - name: setupIntentId
+        type: string
+        default:
+          from: createSetupIntent.setupIntentId
+    outputs: *setupIntentOutputs
+
+  getSetupIntentForCleanup:
+    description: >-
+      Read a SetupIntent's status for cleanup (GET /v1/setup_intents/{intent}, 200), so the cancel
+      that follows runs only while it can: in requires_payment_method, requires_confirmation, or
+      requires_action. A succeeded or canceled SetupIntent is 400 setup_intent_unexpected_state to a
+      cancel.
+    adapter: getSetupIntentForCleanup
+    tags: [setup-intents, cleanup]
+    oas:
+      operationId: GetSetupIntentsIntent
+    inputs:
+      - name: setupIntentId
+        type: string
+        default:
+          from: createSetupIntent.setupIntentId
+    outputs:
+      - name: setupIntentId
+        type: string
+      - name: status
+        type: string
+        display: Status
+    cleanup:
+      node: cancelSetupIntent
+      when: 'status in ["requires_payment_method", "requires_confirmation", "requires_action"]'
+
+  updateSetupIntent:
+    description: Update a SetupIntent's description and metadata note (POST /v1/setup_intents/{intent}, 200).
+    adapter: updateSetupIntent
+    tags: [setup-intents]
+    oas:
+      operationId: PostSetupIntentsIntent
+    inputs:
+      - name: setupIntentId
+        type: string
+        default:
+          from: createSetupIntent.setupIntentId
+      - name: description
+        type: string
+        optional: true
+      - name: note
+        type: string
+        optional: true
+      - name: idempotencyKey
+        type: string
+        optional: true
+        default: "{{uuid}}"
+    outputs: *setupIntentOutputs
+
+  confirmSetupIntent:
+    description: >-
+      Confirm a SetupIntent with a payment method (POST /v1/setup_intents/{intent}/confirm, 200). A
+      card succeeds, and the customer gets a new PaymentMethod for it.
+    adapter: confirmSetupIntent
+    tags: [setup-intents]
+    oas:
+      operationId: PostSetupIntentsIntentConfirm
+    inputs:
+      - name: setupIntentId
+        type: string
+        default:
+          from: createSetupIntent.setupIntentId
+      - name: paymentMethod
+        type: string
+        optional: true
+      - name: returnUrl
+        type: string
+        optional: true
+      - name: idempotencyKey
+        type: string
+        optional: true
+        default: "{{uuid}}"
+    outputs: *setupIntentOutputs
+
+  cancelSetupIntent:
+    description: >-
+      Cancel a SetupIntent (POST /v1/setup_intents/{intent}/cancel, 200) while it is
+      requires_payment_method, requires_confirmation, or requires_action. A succeeded or canceled one
+      is 400 setup_intent_unexpected_state. The cleanup for an open SetupIntent.
+    adapter: cancelSetupIntent
+    tags: [setup-intents, cleanup]
+    oas:
+      operationId: PostSetupIntentsIntentCancel
+    inputs:
+      - name: setupIntentId
+        type: string
+        default:
+          from: createSetupIntent.setupIntentId
+      - name: cancellationReason
+        type: string
+        optional: true
+        description: abandoned, duplicate, or requested_by_customer
+    outputs: *setupIntentOutputs
+
+  listSetupIntents:
+    description: >-
+      Page through SetupIntents (GET /v1/setup_intents, 200), newest first, narrowed to one customer
+      or to those created at or after a Unix time. Each page counts the SetupIntents this package
+      created and those of them still open, and lists the open ones.
+    adapter: listSetupIntents
+    tags: [setup-intents, pagination]
+    oas:
+      operationId: GetSetupIntents
+    inputs:
+      - name: limit
+        type: integer
+        default: 10
+        constraints:
+          min: 1
+          max: 100
+      - name: customerId
+        type: string
+        optional: true
+      - name: createdGte
+        type: integer
+        optional: true
+      - name: startingAfter
+        type: string
+        optional: true
+    outputs:
+      - name: setupIntents
+        type: setupIntent[]
+        elementFields:
+          - name: id
+            type: string
+          - name: status
+            type: string
+      - name: count
+        type: integer
+        display: SetupIntents
+      - name: hasMore
+        type: boolean
+      - name: lastId
+        type: string
+      - name: ourCount
+        type: integer
+        display: Ours
+      - name: ourOpenCount
+        type: integer
+        display: Ours still open
+      - name: ourOpen
+        type: openSetupIntent[]
+        optional: true
+        elementFields:
+          - name: id
+            type: string
+          - name: status
+            type: string
+          - name: created
+            type: integer
+      - name: liveCount
+        type: integer
+
+  listSetupAttempts:
+    description: >-
+      Page through a SetupIntent's attempts (GET /v1/setup_attempts, 200), newest first; setup_intent
+      is required. A SetupIntent confirmed once has one attempt, with its status and usage.
+    adapter: listSetupAttempts
+    tags: [setup-intents, pagination]
+    oas:
+      operationId: GetSetupAttempts
+    inputs:
+      - name: setupIntentId
+        type: string
+        default:
+          from: createSetupIntent.setupIntentId
+      - name: limit
+        type: integer
+        default: 10
+        constraints:
+          min: 1
+          max: 100
+      - name: startingAfter
+        type: string
+        optional: true
+    outputs:
+      - name: attempts
+        type: setupAttempt[]
+        elementFields:
+          - name: id
+            type: string
+          - name: status
+            type: string
+          - name: usage
+            type: string
+      - name: count
+        type: integer
+        display: Attempts
+      - name: hasMore
+        type: boolean
+      - name: lastId
+        type: string
+      - name: latestStatus
+        type: string
+        description: The newest attempt's status; "" with none
+
 workflows:
   - name: Card Payment
     description: A new customer pays by card with a PaymentIntent, captured the way the capture slot chooses, and the payment is read back with its charge
@@ -1455,3 +2340,8 @@ workflows:
     kind: slot
     description: Confirm with a card declined as suspected fraud
     template: workflows/slots/decline-fraudulent.yaml
+
+  - name: Saved Card
+    description: A customer saves a card with a SetupIntent for off-session use, and a PaymentIntent later charges the saved card with no customer present
+    template: workflows/saved-card.yaml
+    selectionHint: Saving a card for later and charging it off session, with layers for the currency and the amount

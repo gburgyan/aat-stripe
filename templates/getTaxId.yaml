@@ -1,0 +1,21 @@
+adapter: getTaxId
+protocol: http
+
+request:
+  method: GET
+  path: /v1/customers/{{customerId}}/tax_ids/{{taxId}}
+
+response:
+  extract:
+    taxId: id
+    type: type
+    value: value
+    country:
+      path: country
+      default: ""
+    verificationStatus:
+      path: verification.status
+      default: ""
+    customerId:
+      path: customer
+      default: ""

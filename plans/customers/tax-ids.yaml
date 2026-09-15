@@ -1,0 +1,100 @@
+# A customer's tax ID from creation to deletion. An eu_vat number starts with verification pending and reads back with
+# its country; an invalid value is 400 tax_id_invalid on param value; and a deleted tax ID is 404 resource_missing on
+# param id when deleted again. The plan's own delete releases the create's cleanup.
+intent:
+  goal: deleteAgain
+  description: A tax ID is added, read, listed, and deleted, and an invalid one is refused
+
+execution:
+  steps:
+    - id: create
+      node: createCustomer
+      description: A customer tagged metadata[source]=aat-stripe
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: livemode == false && source == "aat-stripe"
+
+    - id: taxId
+      node: createTaxId
+      description: Add a German VAT number
+      values:
+        customerId: {from: create.customerId}
+        type: eu_vat
+        value: DE000000000
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: >-
+              type == "eu_vat" && value == "DE000000000" && country == "DE" && verificationStatus == "pending" &&
+              customerId == "{{create.customerId}}"
+
+    - id: read
+      node: getTaxId
+      description: The tax ID read back
+      values:
+        customerId: {from: create.customerId}
+        taxId: {from: taxId.taxId}
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: taxId == "{{taxId.taxId}}" && value == "DE000000000" && country == "DE"
+
+    - id: listed
+      node: listTaxIds
+      dependsOn: [read]
+      description: The customer's tax IDs
+      values:
+        customerId: {from: create.customerId}
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: count == 1 && lastId == "{{taxId.taxId}}"
+
+    - id: invalid
+      node: createTaxId
+      dependsOn: [listed]
+      description: Add a value that isn't a VAT number
+      values:
+        customerId: {from: create.customerId}
+        type: eu_vat
+        value: NOTAVAT
+      expectFailure:
+        status: [400]
+        description: tax_id_invalid on param value
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: error.type == "invalid_request_error" && error.code == "tax_id_invalid" && error.param == "value"
+          - type: fieldAbsent
+            path: error.decline_code
+
+    - id: delete
+      node: deleteTaxId
+      dependsOn: [invalid]
+      description: Delete the tax ID
+      values:
+        customerId: {from: create.customerId}
+        taxId: {from: taxId.taxId}
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: deleted == true && taxId == "{{taxId.taxId}}"
+
+    - id: deleteAgain
+      node: deleteTaxId
+      dependsOn: [delete]
+      isGoal: true
+      description: Delete it a second time
+      values:
+        customerId: {from: create.customerId}
+        taxId: {from: taxId.taxId}
+      expectFailure:
+        status: [404]
+        description: resource_missing, since it is already deleted
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: error.type == "invalid_request_error" && error.code == "resource_missing" && error.param == "id"
+          - type: fieldAbsent
+            path: error.decline_code

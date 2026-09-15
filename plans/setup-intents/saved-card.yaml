@@ -1,0 +1,9 @@
+# A card saved with a SetupIntent and charged later, off session: the SetupIntent succeeds with one attempt, the
+# customer holds a copy of the test card under a PaymentMethod ID of its own, and the off-session payment succeeds.
+kind: recipe
+metadata:
+  prompt: Save a card, then charge it off session
+  graphVersion: "1.0.0"
+selection:
+  workflow: Saved Card
+  description: Saved for off-session use, then charged
