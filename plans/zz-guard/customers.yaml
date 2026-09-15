@@ -1,0 +1,26 @@
+# Every customer created since the package started (packageEpoch in env.yaml), a page at a time: none
+# the package created is left, and none is in live mode. Cleanup deletes every customer a plan creates,
+# and a deleted customer drops out of the list, so one left means a cleanup didn't run. The name sorts it
+# last in a batch; run the batch sequentially, since a parallel one can still be creating when this reads.
+intent:
+  goal: customers
+  description: No customer this package created is left, across every page since the package started
+
+execution:
+  steps:
+    - id: customers
+      node: listCustomers
+      isGoal: true
+      description: Every page of customers since packageEpoch, counted by source
+      values:
+        limit: 100
+        createdGte: "{{env.packageEpoch}}"
+      repeat:
+        next: {startingAfter: lastId}
+        until: hasMore == false
+        collect: [count, ourCount, ourCustomers, liveCount]
+        max: 100
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: ourCount == 0 && liveCount == 0

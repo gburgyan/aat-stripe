@@ -1,0 +1,33 @@
+# Every country a Stripe account can be in, a page of 100 at a time, then the United States on its own:
+# USD by default, with more than 100 payment currencies and transfer countries.
+intent:
+  goal: us
+  description: Every page of country specs, and the US spec read by its code
+
+execution:
+  steps:
+    - id: countries
+      node: listCountrySpecs
+      description: Every page of country specs
+      values:
+        limit: 100
+      repeat:
+        next: {startingAfter: lastId}
+        until: hasMore == false
+        collect: [count]
+        max: 10
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: hasMore == false && count > 100
+
+    - id: us
+      node: getCountrySpec
+      isGoal: true
+      description: The United States
+      values:
+        country: US
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: country == "US" && defaultCurrency == "usd" && paymentCurrencyCount > 100 && transferCountryCount > 100

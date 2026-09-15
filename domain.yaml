@@ -1,0 +1,65 @@
+# What these plans have verified about Stripe's API in test mode. Each concept names the plans that
+# prove it; nothing here is copied from the docs without a run behind it.
+concepts:
+  testMode:
+    description: >-
+      Every call carries "Authorization: Bearer <secret key>". A test key (sk_test_) reaches only test
+      mode, where the balance and every object carry livemode false. The environments read the key
+      from STRIPE_API_KEY, the Stripe CLI's variable. Proven by plans/account/account-and-balance.yaml.
+    applies_to: [livemode]
+    constraint: check that livemode is false before creating anything
+
+  errors:
+    description: >-
+      Errors share one envelope, {"error": {"type", "code", "decline_code", "param", "message"}}. An
+      unknown or already deleted ID is 404 invalid_request_error with code resource_missing and param
+      id. Proven by plans/customers/lifecycle.yaml.
+    applies_to: [error]
+    constraint: branch on error.type and error.code, and check error.param for the field at fault
+
+  pagination:
+    description: >-
+      Lists come newest first. limit takes 1 to 100, and starting_after takes the last ID of the
+      previous page. has_more is false on the last page, which still holds items, so a reader stops on
+      has_more rather than on an empty page. Filters such as created[gte] take Unix seconds. Proven by
+      plans/reference/tax-codes.yaml and plans/zz-guard/customers.yaml.
+    applies_to: [limit, startingAfter, lastId, hasMore, count, createdGte]
+    constraint: pass lastId back as startingAfter, and stop when hasMore is false
+
+  idempotency:
+    description: >-
+      A POST whose Idempotency-Key Stripe has already seen answers with the first response: the same
+      object, with Idempotent-Replayed true and Original-Request naming the first request, under a
+      Request-Id of its own. The same key with other parameters, or on another endpoint, is 400
+      idempotency_error with no code and no param, and changes nothing. Proven by
+      plans/idempotency/replay.yaml and plans/idempotency/conflict.yaml.
+    applies_to: [idempotencyKey, idempotentReplayed, originalRequest, requestId]
+    constraint: send a fresh key for each new request, and the same key only to retry that request
+
+  apiVersions:
+    description: >-
+      Without a Stripe-Version header Stripe answers at the account's default API version, and the
+      Stripe-Version response header names the version it answered at. Events are rendered at the
+      account's default version whatever the request sent. Proven by drift/account-default.yaml and
+      plans/account/events.yaml.
+    applies_to: [stripeVersion, apiVersion]
+    constraint: pin Stripe-Version to the spec's version so responses match its schemas
+
+  packageObjects:
+    description: >-
+      Every object this package creates carries metadata[source]=aat-stripe. The guard plans count
+      those and fail on any left behind; objects from earlier projects on the same account are left
+      alone. Proven by plans/zz-guard/customers.yaml.
+    applies_to: [source, ourCount, ourCustomers]
+
+  customers:
+    description: >-
+      A deleted customer drops out of the list but still reads 200, with only id, object, and deleted
+      true, and deleting it again is 404 resource_missing. Proven by plans/customers/lifecycle.yaml.
+    applies_to: [customerId, deleted]
+
+  events:
+    description: >-
+      A change made through the API leaves an event naming the object it changed and the request
+      behind it, with that request's Idempotency-Key. Proven by plans/account/events.yaml.
+    applies_to: [eventId, eventType, objectId, requestId, idempotencyKey]

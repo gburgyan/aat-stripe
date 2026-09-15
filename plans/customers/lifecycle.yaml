@@ -1,0 +1,75 @@
+# A customer from creation to deletion: read back, found by its email, and deleted. A deleted customer
+# still reads 200, with deleted: true and nothing else, and deleting it again is 404 resource_missing on
+# param id. The plan's own delete releases the create's cleanup entry.
+intent:
+  goal: deletedRead
+  description: A customer is created, found, deleted, and still readable as deleted
+
+execution:
+  steps:
+    - id: create
+      node: createCustomer
+      description: A customer tagged metadata[source]=aat-stripe
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: livemode == false && source == "aat-stripe" && testClock == ""
+
+    - id: read
+      node: getCustomer
+      description: The customer read back
+      values:
+        customerId: {from: create.customerId}
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: customerId == "{{create.customerId}}" && deleted == false && email == "{{create.email}}" && source == "aat-stripe"
+
+    - id: byEmail
+      node: listCustomers
+      dependsOn: [read]
+      description: Customers with the new customer's email
+      values:
+        email: {fromInput: create.email}
+        limit: 10
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: count == 1 && ourCount == 1 && lastId == "{{create.customerId}}"
+
+    - id: delete
+      node: deleteCustomer
+      dependsOn: [byEmail]
+      description: Delete the customer
+      values:
+        customerId: {from: create.customerId}
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: deleted == true && customerId == "{{create.customerId}}"
+
+    - id: deletedRead
+      node: getCustomer
+      dependsOn: [delete]
+      isGoal: true
+      description: The deleted customer read again
+      values:
+        customerId: {from: create.customerId}
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: deleted == true && customerId == "{{create.customerId}}" && email == "" && source == ""
+
+    - id: deleteAgain
+      node: deleteCustomer
+      dependsOn: [deletedRead]
+      description: Delete the customer a second time
+      values:
+        customerId: {from: create.customerId}
+      expectFailure:
+        status: [404]
+        description: resource_missing, since the customer is already deleted
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: error.type == "invalid_request_error" && error.code == "resource_missing" && error.param == "id"

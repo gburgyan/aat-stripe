@@ -1,0 +1,55 @@
+# Run with --env account-default, which sends no Stripe-Version. Stripe answers at the account's default
+# API version and names it in the Stripe-Version response header, and the customer.created event is
+# rendered at that same version. Under the pinned environments the header says 2026-08-26.dahlia while
+# the event still carries the account's default, which is why this plan sits outside plans/. Cleanup
+# deletes the customer.
+intent:
+  goal: event
+  description: With no Stripe-Version sent, the response and its event share the account's default version
+
+execution:
+  steps:
+    - id: balance
+      node: getBalance
+      description: The balance, in test mode
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: livemode == false
+
+    - id: create
+      node: createCustomer
+      dependsOn: [balance]
+      description: A customer, created at the account's default version
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: livemode == false && source == "aat-stripe" && stripeVersion != ""
+
+    - id: events
+      node: listEvents
+      description: customer.created events since the customer was created
+      values:
+        eventType: customer.created
+        createdGte: {from: create.created}
+        limit: 100
+      repeat:
+        until: count >= 1
+        interval: 1s
+        max: 10
+
+    - id: event
+      node: getEvent
+      isGoal: true
+      description: The event about this customer, at the version the create answered at
+      values:
+        eventId:
+          from: events.events
+          select:
+            strategy: first
+            field: id
+            filter: objectId == "{{create.customerId}}"
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: objectId == "{{create.customerId}}" && requestId == "{{create.requestId}}" && apiVersion == "{{create.stripeVersion}}"

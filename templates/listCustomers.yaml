@@ -1,0 +1,33 @@
+adapter: listCustomers
+protocol: http
+
+request:
+  method: GET
+  path: /v1/customers?limit={{limit}}{{?email}}&email={{email}}{{/email}}{{?createdGte}}&created[gte]={{createdGte}}{{/createdGte}}{{?startingAfter}}&starting_after={{startingAfter}}{{/startingAfter}}
+
+response:
+  extract:
+    customers:
+      path: data
+      fields:
+        id: id
+        email: email
+    count: 'data.#'
+    hasMore: has_more
+    lastId:
+      path: data.@reverse.0.id
+      default: ""
+  # Customers this package creates carry metadata.source "aat-stripe". A page counts those and lists
+  # them, so a guard that fails can name them, and counts any in live mode apart.
+  transform: |
+    local ours, live = {}, 0
+    for _, customer in ipairs(json_path("data") or {}) do
+      if type(customer.metadata) == "table" and customer.metadata.source == "aat-stripe" then
+        table.insert(ours, {id = customer.id, email = customer.email or "", created = customer.created})
+      end
+      if customer.livemode == true then live = live + 1 end
+    end
+    outputs.ourCount = #ours
+    if #ours > 0 then outputs.ourCustomers = ours end
+    outputs.liveCount = live
+    return outputs

@@ -1,0 +1,73 @@
+# One Idempotency-Key reused with other parameters, then on another endpoint: Stripe refuses both with
+# 400 idempotency_error, whose body has no code, param, or decline_code, and changes nothing. The first
+# customer keeps its email, and cleanup deletes it.
+intent:
+  goal: otherEndpoint
+  description: A reused Idempotency-Key is refused with other parameters and on another endpoint
+
+execution:
+  steps:
+    - id: first
+      node: createCustomer
+      description: A customer, with a fresh Idempotency-Key
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: livemode == false && source == "aat-stripe" && idempotentReplayed == false
+
+    - id: otherParameters
+      node: createCustomer
+      description: The same key with another email
+      values:
+        idempotencyKey: {fromInput: first.idempotencyKey}
+        email: aat-stripe-other@example.com
+      expectFailure:
+        status: [400]
+        description: idempotency_error, since the key was first sent with other parameters
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: error.type == "idempotency_error"
+          - type: fieldAbsent
+            path: error.code
+          - type: fieldAbsent
+            path: error.param
+          - type: fieldAbsent
+            path: error.decline_code
+
+    - id: settings
+      node: getBalanceSettings
+      description: The balance settings, to send back unchanged
+
+    - id: otherEndpoint
+      node: updateBalanceSettings
+      dependsOn: [otherParameters]
+      isGoal: true
+      description: The same key on another endpoint, with the payout interval as it is
+      values:
+        idempotencyKey: {fromInput: first.idempotencyKey}
+        payoutInterval: {from: settings.payoutInterval}
+      expectFailure:
+        status: [400]
+        description: idempotency_error, since the key was first sent to /v1/customers
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: error.type == "idempotency_error"
+          - type: fieldAbsent
+            path: error.code
+          - type: fieldAbsent
+            path: error.param
+          - type: fieldAbsent
+            path: error.decline_code
+
+    - id: unchanged
+      node: getCustomer
+      dependsOn: [otherEndpoint]
+      description: The first customer, still with its own email
+      values:
+        customerId: {from: first.customerId}
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: deleted == false && email == "{{first.email}}"

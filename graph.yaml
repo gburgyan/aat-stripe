@@ -1,0 +1,655 @@
+version: "1.0.0"
+title: Stripe (test mode)
+description: >-
+  Stripe's REST API at https://api.stripe.com, in test mode. Requests are form-encoded, with
+  bracketed keys for nested fields (metadata[source]=aat-stripe), and authenticated with the secret
+  key as a bearer token; responses are JSON. Errors share one envelope, {"error": {"type", "code",
+  "decline_code", "param", "message"}}, and an unknown ID is 404 resource_missing. Lists come newest
+  first and page with starting_after, the last ID of the previous page, until has_more is false.
+  Every node names its operation in Stripe's own OpenAPI spec, and the pinned environments check
+  each request and response against it.
+
+oas: openapi/spec3.json
+
+nodes:
+  # --- Account and balance ---------------------------------------------------------------------
+
+  getAccount:
+    description: >-
+      Read the account the secret key belongs to (GET /v1/account, 200): its country, default
+      currency, and type, whether it can take charges and pay out, and the state of the
+      card_payments and transfers capabilities. The account object has no livemode field; the
+      balance has one.
+    adapter: getAccount
+    tags: [account]
+    oas:
+      operationId: GetAccount
+    outputs:
+      - name: accountId
+        type: string
+        display: Account
+      - name: country
+        type: string
+        display: Country
+      - name: accountType
+        type: string
+        description: standard, express, custom, or none
+      - name: defaultCurrency
+        type: string
+      - name: chargesEnabled
+        type: boolean
+      - name: payoutsEnabled
+        type: boolean
+      - name: detailsSubmitted
+        type: boolean
+      - name: cardPayments
+        type: string
+        description: The card_payments capability, such as active or pending; "" when the account has none
+      - name: transfers
+        type: string
+        description: The transfers capability, such as active or pending; "" when the account has none
+      - name: controllerType
+        type: string
+        description: account for an account that controls itself, application for a connected account; "" when absent
+
+  getBalance:
+    description: >-
+      Read the balance (GET /v1/balance, 200), per currency, as available (ready to pay out) and
+      pending. Amounts are integers in the currency's smallest unit. livemode is false for a test
+      key, so a plan can check it before anything is created.
+    adapter: getBalance
+    tags: [balance]
+    oas:
+      operationId: GetBalance
+    outputs:
+      - name: livemode
+        type: boolean
+      - name: availableUsd
+        type: integer
+        display: Available USD
+        description: The available USD amount in cents; 0 when the balance has no USD entry
+      - name: pendingUsd
+        type: integer
+        display: Pending USD
+        description: The pending USD amount in cents; 0 when the balance has no USD entry
+      - name: currencyCount
+        type: integer
+        description: How many currencies the available balance lists
+
+  listBalanceTransactions:
+    description: >-
+      Page through the balance transactions (GET /v1/balance_transactions, 200), newest first: each
+      charge, refund, fee, payout, and transfer that moved the balance. limit is 1 to 100, and
+      filters narrow the list to one type (charge, refund, payout, ...) or to transactions created at
+      or after a Unix time. The older path /v1/balance/history answers the same list and isn't used.
+    adapter: listBalanceTransactions
+    tags: [balance, pagination]
+    oas:
+      operationId: GetBalanceTransactions
+    inputs:
+      - name: limit
+        type: integer
+        default: 10
+        description: Transactions per page, 1 to 100
+        constraints:
+          min: 1
+          max: 100
+      - name: startingAfter
+        type: string
+        optional: true
+        description: The previous page's lastId
+      - name: transactionType
+        type: string
+        optional: true
+        description: Only transactions of this type, such as charge or refund
+      - name: createdGte
+        type: integer
+        optional: true
+        description: Only transactions created at or after this Unix time
+    outputs:
+      - name: transactions
+        type: balanceTransaction[]
+        elementFields:
+          - name: id
+            type: string
+          - name: type
+            type: string
+          - name: amount
+            type: integer
+          - name: currency
+            type: string
+          - name: status
+            type: string
+      - name: count
+        type: integer
+        display: Transactions
+      - name: hasMore
+        type: boolean
+      - name: firstId
+        type: string
+        description: The newest ID on the page; "" on an empty page
+      - name: lastId
+        type: string
+        description: The oldest ID on the page, which the next page starts after; "" on an empty page
+
+  getBalanceTransaction:
+    description: >-
+      Read one balance transaction by its txn_ ID (GET /v1/balance_transactions/{id}, 200). net is
+      the amount less the fee, and source is the ID of the object that moved the balance, such as a
+      ch_ charge or a re_ refund.
+    adapter: getBalanceTransaction
+    tags: [balance]
+    oas:
+      operationId: GetBalanceTransactionsId
+    inputs:
+      - name: balanceTransactionId
+        type: string
+        description: The txn_ ID
+        default:
+          from: listBalanceTransactions.transactions
+          select:
+            strategy: first
+            field: id
+    outputs:
+      - name: balanceTransactionId
+        type: string
+        display: Transaction
+      - name: transactionType
+        type: string
+        display: Type
+      - name: amount
+        type: integer
+      - name: fee
+        type: integer
+      - name: net
+        type: integer
+      - name: currency
+        type: string
+      - name: status
+        type: string
+        description: available or pending
+      - name: reportingCategory
+        type: string
+      - name: source
+        type: string
+        description: The ID of the object behind the transaction; "" when there is none
+      - name: created
+        type: integer
+      - name: availableOn
+        type: integer
+
+  getBalanceSettings:
+    description: >-
+      Read the balance settings (GET /v1/balance_settings, 200): whether a negative balance is
+      debited from the bank account, the payout schedule, and how many days a charge takes to settle.
+    adapter: getBalanceSettings
+    tags: [balance, settings]
+    oas:
+      operationId: GetBalanceSettings
+    outputs:
+      - name: debitNegativeBalances
+        type: boolean
+      - name: payoutInterval
+        type: string
+        display: Payouts
+        description: manual, daily, weekly, or monthly; "" when no schedule is set
+      - name: payoutStatus
+        type: string
+        description: enabled or disabled; "" when absent
+      - name: settlementDelayDays
+        type: integer
+        description: Days before a charge's funds become available; 0 when absent
+
+  updateBalanceSettings:
+    description: >-
+      Update the balance settings (POST /v1/balance_settings, 200). Only the fields given are sent;
+      the payout interval defaults to the one getBalanceSettings read, so the node writes back what
+      is there unless a plan says otherwise. An activated account can't change
+      payments[debit_negative_balances] through the API at all: 400 invalid_request_error with that
+      param, even when the value is unchanged. The response is the settings after the update.
+    adapter: updateBalanceSettings
+    tags: [balance, settings]
+    oas:
+      operationId: PostBalanceSettings
+    inputs:
+      - name: debitNegativeBalances
+        type: boolean
+        optional: true
+        description: Refused on an activated account
+      - name: payoutInterval
+        type: string
+        optional: true
+        description: manual, daily, weekly, or monthly
+        default:
+          from: getBalanceSettings.payoutInterval
+      - name: idempotencyKey
+        type: string
+        optional: true
+        default: "{{uuid}}"
+        description: The Idempotency-Key header; a retried request answers with the first response
+    outputs:
+      - name: debitNegativeBalances
+        type: boolean
+      - name: payoutInterval
+        type: string
+        display: Payouts
+      - name: payoutStatus
+        type: string
+      - name: settlementDelayDays
+        type: integer
+
+  # --- Reference data --------------------------------------------------------------------------
+
+  listCountrySpecs:
+    description: >-
+      Page through the country specs (GET /v1/country_specs, 200): one for each country a Stripe
+      account can be in, with its default currency. limit is 1 to 100. A page of 100 has taken from
+      1 to 20 seconds.
+    adapter: listCountrySpecs
+    tags: [reference, pagination]
+    oas:
+      operationId: GetCountrySpecs
+    inputs:
+      - name: limit
+        type: integer
+        default: 100
+        description: Countries per page, 1 to 100
+        constraints:
+          min: 1
+          max: 100
+      - name: startingAfter
+        type: string
+        optional: true
+        description: The previous page's lastId
+    outputs:
+      - name: countries
+        type: countrySpec[]
+        elementFields:
+          - name: id
+            type: string
+          - name: defaultCurrency
+            type: string
+      - name: count
+        type: integer
+        display: Countries
+      - name: hasMore
+        type: boolean
+      - name: lastId
+        type: string
+        description: The last country code on the page; "" on an empty page
+
+  getCountrySpec:
+    description: >-
+      Read one country's spec by its two-letter code (GET /v1/country_specs/{country}, 200): its
+      default currency, and how many currencies payments can be in, countries it can transfer to, and
+      payment methods it lists.
+    adapter: getCountrySpec
+    tags: [reference]
+    oas:
+      operationId: GetCountrySpecsCountry
+    inputs:
+      - name: country
+        type: string
+        default: US
+        description: An ISO 3166-1 alpha-2 country code
+    outputs:
+      - name: country
+        type: string
+        display: Country
+      - name: defaultCurrency
+        type: string
+      - name: paymentCurrencyCount
+        type: integer
+      - name: transferCountryCount
+        type: integer
+      - name: paymentMethodCount
+        type: integer
+
+  listTaxCodes:
+    description: >-
+      Page through Stripe Tax's product tax codes (GET /v1/tax_codes, 200), a fixed catalog of
+      txcd_ codes. limit is 1 to 100.
+    adapter: listTaxCodes
+    tags: [reference, tax, pagination]
+    oas:
+      operationId: GetTaxCodes
+    inputs:
+      - name: limit
+        type: integer
+        default: 100
+        description: Codes per page, 1 to 100
+        constraints:
+          min: 1
+          max: 100
+      - name: startingAfter
+        type: string
+        optional: true
+        description: The previous page's lastId
+    outputs:
+      - name: taxCodes
+        type: taxCode[]
+        elementFields:
+          - name: id
+            type: string
+          - name: name
+            type: string
+      - name: count
+        type: integer
+        display: Tax codes
+      - name: hasMore
+        type: boolean
+      - name: lastId
+        type: string
+        description: The last code on the page; "" on an empty page
+
+  getTaxCode:
+    description: >-
+      Read one product tax code by its txcd_ ID (GET /v1/tax_codes/{id}, 200). txcd_10000000 is the
+      general code for electronically supplied services, the account's default.
+    adapter: getTaxCode
+    tags: [reference, tax]
+    oas:
+      operationId: GetTaxCodesId
+    inputs:
+      - name: taxCodeId
+        type: string
+        default: txcd_10000000
+        description: The txcd_ ID
+    outputs:
+      - name: taxCodeId
+        type: string
+        display: Tax code
+      - name: name
+        type: string
+      - name: description
+        type: string
+
+  # --- Events ----------------------------------------------------------------------------------
+
+  listEvents:
+    description: >-
+      Page through the account's events (GET /v1/events, 200), newest first, going back 30 days.
+      eventType takes one type, or a group with a wildcard such as customer.*, and createdGte a Unix
+      time. Each event names the object it is about, the API request that caused it, and that
+      request's Idempotency-Key. An event is rendered at the account's default API version, even
+      when the request that caused it pinned another.
+    adapter: listEvents
+    tags: [events, pagination]
+    oas:
+      operationId: GetEvents
+    inputs:
+      - name: limit
+        type: integer
+        default: 10
+        description: Events per page, 1 to 100
+        constraints:
+          min: 1
+          max: 100
+      - name: startingAfter
+        type: string
+        optional: true
+        description: The previous page's lastId
+      - name: eventType
+        type: string
+        optional: true
+        description: Only events of this type, such as customer.created, or a group such as customer.*
+      - name: createdGte
+        type: integer
+        optional: true
+        description: Only events created at or after this Unix time
+    outputs:
+      - name: events
+        type: event[]
+        elementFields:
+          - name: id
+            type: string
+          - name: type
+            type: string
+          - name: objectId
+            type: string
+          - name: requestId
+            type: string
+          - name: apiVersion
+            type: string
+      - name: count
+        type: integer
+        display: Events
+      - name: hasMore
+        type: boolean
+      - name: lastId
+        type: string
+        description: The oldest ID on the page; "" on an empty page
+
+  getEvent:
+    description: >-
+      Read one event by its evt_ ID (GET /v1/events/{id}, 200): its type, the API version its data is
+      rendered at, the object it is about, and the request that caused it.
+    adapter: getEvent
+    tags: [events]
+    oas:
+      operationId: GetEventsId
+    inputs:
+      - name: eventId
+        type: string
+        description: The evt_ ID
+        default:
+          from: listEvents.events
+          select:
+            strategy: first
+            field: id
+    outputs:
+      - name: eventId
+        type: string
+        display: Event
+      - name: eventType
+        type: string
+        display: Type
+      - name: apiVersion
+        type: string
+      - name: livemode
+        type: boolean
+      - name: created
+        type: integer
+      - name: objectId
+        type: string
+        description: The ID of the object the event is about; "" when it has none
+      - name: objectType
+        type: string
+        description: The object's type, such as customer; "" when absent
+      - name: requestId
+        type: string
+        description: The req_ ID of the API request behind the event; "" for an event nothing requested
+      - name: idempotencyKey
+        type: string
+        description: That request's Idempotency-Key; "" when it sent none
+
+  # --- Customers -------------------------------------------------------------------------------
+
+  createCustomer:
+    description: >-
+      Create a customer (POST /v1/customers, 200). Every customer the package creates carries
+      metadata[source]=aat-stripe and a fresh Idempotency-Key. Sending the key again with the same
+      parameters answers with the first customer, with Idempotent-Replayed: true and Original-Request
+      naming the first request; other parameters, or another endpoint, are 400 idempotency_error.
+      Cleanup deletes the customer, except after a replay, whose customer the first request's
+      cleanup deletes.
+    adapter: createCustomer
+    tags: [customers]
+    oas:
+      operationId: PostCustomers
+    inputs:
+      - name: email
+        type: string
+        default: "aat-stripe-{{random 10}}@example.com"
+        description: A fresh address in a domain reserved for examples
+      - name: name
+        type: string
+        default: AAT Stripe customer
+      - name: description
+        type: string
+        optional: true
+      - name: idempotencyKey
+        type: string
+        optional: true
+        default: "{{uuid}}"
+        description: The Idempotency-Key header; a retried create answers with the first customer
+    outputs:
+      - name: customerId
+        type: string
+        display: Customer
+      - name: email
+        type: string
+      - name: name
+        type: string
+      - name: livemode
+        type: boolean
+      - name: created
+        type: integer
+      - name: source
+        type: string
+        description: metadata.source, aat-stripe for every customer the package creates
+      - name: testClock
+        type: string
+        description: The test clock the customer runs on; "" for none
+      - name: idempotentReplayed
+        type: boolean
+        description: The Idempotent-Replayed response header; false when Stripe sends none
+      - name: requestId
+        type: string
+        description: The Request-Id response header, the req_ ID events name
+      - name: originalRequest
+        type: string
+        description: The Original-Request header, the request that first sent the key; this request's own ID unless it is a replay
+      - name: stripeVersion
+        type: string
+        description: The Stripe-Version response header, the API version Stripe answered at
+    # A live key would create a real customer; stop at the first one.
+    errorDetection:
+      - path: livemode
+        rule: equals
+        value: true
+    cleanup:
+      node: deleteCustomer
+      when: idempotentReplayed == false
+
+  getCustomer:
+    description: >-
+      Read a customer by its cus_ ID (GET /v1/customers/{customer}, 200). A deleted customer still
+      answers 200, with only id, object, and deleted: true; an ID that never existed is 404
+      resource_missing with param id.
+    adapter: getCustomer
+    tags: [customers]
+    oas:
+      operationId: GetCustomersCustomer
+    inputs:
+      - name: customerId
+        type: string
+        description: The cus_ ID
+        default:
+          from: createCustomer.customerId
+    outputs:
+      - name: customerId
+        type: string
+        display: Customer
+      - name: deleted
+        type: boolean
+        description: true for a deleted customer; false otherwise
+      - name: email
+        type: string
+        description: '"" for a deleted customer or one without an email'
+      - name: name
+        type: string
+      - name: livemode
+        type: boolean
+      - name: source
+        type: string
+        description: metadata.source; "" when absent
+      - name: testClock
+        type: string
+        description: The test clock the customer runs on; "" for none
+
+  listCustomers:
+    description: >-
+      Page through the customers (GET /v1/customers, 200), newest first. limit is 1 to 100, and
+      filters narrow the list to one email or to customers created at or after a Unix time. A deleted
+      customer is no longer listed. Each page counts the customers this package created
+      (metadata.source aat-stripe), and lists them so a guard that fails can name them.
+    adapter: listCustomers
+    tags: [customers, pagination]
+    oas:
+      operationId: GetCustomers
+    inputs:
+      - name: limit
+        type: integer
+        default: 10
+        description: Customers per page, 1 to 100
+        constraints:
+          min: 1
+          max: 100
+      - name: startingAfter
+        type: string
+        optional: true
+        description: The previous page's lastId
+      - name: email
+        type: string
+        optional: true
+        description: Only customers with exactly this email
+      - name: createdGte
+        type: integer
+        optional: true
+        description: Only customers created at or after this Unix time
+    outputs:
+      - name: customers
+        type: customer[]
+        elementFields:
+          - name: id
+            type: string
+          - name: email
+            type: string
+      - name: count
+        type: integer
+        display: Customers
+      - name: hasMore
+        type: boolean
+      - name: lastId
+        type: string
+        description: The oldest ID on the page; "" on an empty page
+      - name: ourCount
+        type: integer
+        display: Ours
+        description: Customers on the page this package created
+      - name: ourCustomers
+        type: ourCustomer[]
+        optional: true
+        description: The package's customers on the page, when there are any
+        elementFields:
+          - name: id
+            type: string
+          - name: email
+            type: string
+          - name: created
+            type: integer
+      - name: liveCount
+        type: integer
+        description: Customers in live mode on the page; 0 for a test key
+
+  deleteCustomer:
+    description: >-
+      Delete a customer for good (DELETE /v1/customers/{customer}, 200, deleted: true). Deleting one
+      already deleted is 404 resource_missing with param id. The cleanup for createCustomer.
+    adapter: deleteCustomer
+    tags: [customers, cleanup]
+    oas:
+      operationId: DeleteCustomersCustomer
+    inputs:
+      - name: customerId
+        type: string
+        description: The cus_ ID
+        default:
+          from: createCustomer.customerId
+    outputs:
+      - name: customerId
+        type: string
+        display: Deleted
+      - name: deleted
+        type: boolean

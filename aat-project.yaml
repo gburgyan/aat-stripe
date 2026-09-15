@@ -1,0 +1,16 @@
+name: stripe
+description: >-
+  Stripe's API in test mode, validated against Stripe's own OpenAPI spec: the account and its
+  balance, reference data, events, customers, and idempotent requests so far, each proven against
+  the live test API
+tags: [payments, stripe, test-mode]
+graph: graph.yaml
+templates: templates/
+domain: domain.yaml
+plans: plans/
+# Stripe's published spec (github.com/stripe/openapi), vendored verbatim; see the README for its pin.
+oas: openapi/spec3.json
+environment: env.yaml
+defaultEnvironment: test
+archives: _output/runs
+traces: _output/traces

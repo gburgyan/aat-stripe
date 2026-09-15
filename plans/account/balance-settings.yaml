@@ -1,0 +1,56 @@
+# The balance settings written back as they are. The payout interval is accepted and answered as sent.
+# The negative-balance debit is refused even unchanged, since an activated account can't change it
+# through the API, and a second read matches the first, settlement timing included.
+intent:
+  goal: reread
+  description: Balance settings take their own payout interval back, refuse the debit setting, and stay unchanged
+
+execution:
+  steps:
+    - id: before
+      node: getBalanceSettings
+      description: The settings as they are
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: payoutInterval != "" && payoutStatus != ""
+
+    - id: update
+      node: updateBalanceSettings
+      description: Send the payout interval back unchanged
+      values:
+        payoutInterval: {from: before.payoutInterval}
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: >-
+              payoutInterval == "{{before.payoutInterval}}" &&
+              debitNegativeBalances == "{{before.debitNegativeBalances}}"
+
+    - id: debitRefused
+      node: updateBalanceSettings
+      dependsOn: [update]
+      description: Send the negative-balance debit back unchanged
+      values:
+        debitNegativeBalances: {from: before.debitNegativeBalances}
+        payoutInterval: {from: before.payoutInterval}
+      expectFailure:
+        status: [400]
+        description: an activated account can't change payments[debit_negative_balances] through the API
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: error.type == "invalid_request_error" && error.param == "payments[debit_negative_balances]"
+
+    - id: reread
+      node: getBalanceSettings
+      dependsOn: [debitRefused]
+      isGoal: true
+      description: The settings read again
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: >-
+              debitNegativeBalances == "{{before.debitNegativeBalances}}" &&
+              payoutInterval == "{{before.payoutInterval}}" && payoutStatus == "{{before.payoutStatus}}" &&
+              settlementDelayDays == "{{before.settlementDelayDays}}"

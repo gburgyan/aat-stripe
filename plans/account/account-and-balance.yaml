@@ -1,0 +1,27 @@
+# The key reaches a test-mode balance, checked first, and the US account behind it: its currency, that
+# it can take charges, and the card_payments and transfers capabilities later plans rely on.
+intent:
+  goal: account
+  description: A test-mode balance on a US account that takes cards
+
+execution:
+  steps:
+    - id: balance
+      node: getBalance
+      description: The balance, in test mode
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: livemode == false && currencyCount >= 1
+
+    - id: account
+      node: getAccount
+      dependsOn: [balance]
+      isGoal: true
+      description: The account the key belongs to
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: >-
+              country == "US" && defaultCurrency == "usd" && chargesEnabled == true &&
+              cardPayments == "active" && transfers == "active" && controllerType == "account"

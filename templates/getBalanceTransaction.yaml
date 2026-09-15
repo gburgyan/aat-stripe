@@ -1,0 +1,22 @@
+adapter: getBalanceTransaction
+protocol: http
+
+request:
+  method: GET
+  path: /v1/balance_transactions/{{balanceTransactionId}}
+
+response:
+  extract:
+    balanceTransactionId: id
+    transactionType: type
+    amount: amount
+    fee: fee
+    net: net
+    currency: currency
+    status: status
+    reportingCategory: reporting_category
+    source:
+      path: source
+      default: ""
+    created: created
+    availableOn: available_on

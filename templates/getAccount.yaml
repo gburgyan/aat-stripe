@@ -1,0 +1,25 @@
+adapter: getAccount
+protocol: http
+
+request:
+  method: GET
+  path: /v1/account
+
+response:
+  extract:
+    accountId: id
+    country: country
+    accountType: type
+    defaultCurrency: default_currency
+    chargesEnabled: charges_enabled
+    payoutsEnabled: payouts_enabled
+    detailsSubmitted: details_submitted
+    cardPayments:
+      path: capabilities.card_payments
+      default: ""
+    transfers:
+      path: capabilities.transfers
+      default: ""
+    controllerType:
+      path: controller.type
+      default: ""

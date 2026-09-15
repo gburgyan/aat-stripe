@@ -1,0 +1,14 @@
+adapter: getCountrySpec
+protocol: http
+
+request:
+  method: GET
+  path: /v1/country_specs/{{country}}
+
+response:
+  extract:
+    country: id
+    defaultCurrency: default_currency
+    paymentCurrencyCount: 'supported_payment_currencies.#'
+    transferCountryCount: 'supported_transfer_countries.#'
+    paymentMethodCount: 'supported_payment_methods.#'

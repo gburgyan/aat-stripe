@@ -1,0 +1,28 @@
+adapter: getCustomer
+protocol: http
+
+request:
+  method: GET
+  path: /v1/customers/{{customerId}}
+
+response:
+  extract:
+    customerId: id
+    deleted:
+      path: deleted
+      default: false
+    email:
+      path: email
+      default: ""
+    name:
+      path: name
+      default: ""
+    livemode:
+      path: livemode
+      default: false
+    source:
+      path: metadata.source
+      default: ""
+    testClock:
+      path: test_clock
+      default: ""

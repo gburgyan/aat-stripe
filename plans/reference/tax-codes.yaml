@@ -1,0 +1,33 @@
+# Every product tax code, a page of 100 at a time until has_more is false, then the general code for
+# electronically supplied services, the account's default, read on its own.
+intent:
+  goal: code
+  description: Every page of tax codes, and one code read by its ID
+
+execution:
+  steps:
+    - id: codes
+      node: listTaxCodes
+      description: Every page of tax codes
+      values:
+        limit: 100
+      repeat:
+        next: {startingAfter: lastId}
+        until: hasMore == false
+        collect: [count]
+        max: 20
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: hasMore == false && count > 100
+
+    - id: code
+      node: getTaxCode
+      isGoal: true
+      description: The general code for electronically supplied services
+      values:
+        taxCodeId: txcd_10000000
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: taxCodeId == "txcd_10000000" && name == "General - Electronically Supplied Services"

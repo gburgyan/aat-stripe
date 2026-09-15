@@ -1,0 +1,27 @@
+adapter: updateBalanceSettings
+protocol: http
+
+request:
+  method: POST
+  path: /v1/balance_settings
+  headers:
+    Idempotency-Key: "{{idempotencyKey}}"
+  form:
+    payments:
+      debit_negative_balances: "{{debitNegativeBalances}}"
+      payouts:
+        schedule:
+          interval: "{{payoutInterval}}"
+
+response:
+  extract:
+    debitNegativeBalances: payments.debit_negative_balances
+    payoutInterval:
+      path: payments.payouts.schedule.interval
+      default: ""
+    payoutStatus:
+      path: payments.payouts.status
+      default: ""
+    settlementDelayDays:
+      path: payments.settlement_timing.delay_days
+      default: 0

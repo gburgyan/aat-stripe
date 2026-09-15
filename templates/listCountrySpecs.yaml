@@ -1,0 +1,19 @@
+adapter: listCountrySpecs
+protocol: http
+
+request:
+  method: GET
+  path: /v1/country_specs?limit={{limit}}{{?startingAfter}}&starting_after={{startingAfter}}{{/startingAfter}}
+
+response:
+  extract:
+    countries:
+      path: data
+      fields:
+        id: id
+        defaultCurrency: default_currency
+    count: 'data.#'
+    hasMore: has_more
+    lastId:
+      path: data.@reverse.0.id
+      default: ""

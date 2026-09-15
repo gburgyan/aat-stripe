@@ -1,0 +1,32 @@
+# The same Idempotency-Key and parameters twice: the second answer replays the first. It names the same
+# customer, carries Idempotent-Replayed: true, and gives the first request's ID as Original-Request
+# under a request ID of its own. The replay creates nothing, so its cleanup entry is skipped, and the
+# first create's cleanup deletes the customer.
+intent:
+  goal: replay
+  description: A create sent again with its Idempotency-Key replays the first answer
+
+execution:
+  steps:
+    - id: first
+      node: createCustomer
+      description: A customer, with a fresh Idempotency-Key
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: livemode == false && source == "aat-stripe" && idempotentReplayed == false && originalRequest == requestId
+
+    - id: replay
+      node: createCustomer
+      isGoal: true
+      description: The same request with the same key
+      values:
+        idempotencyKey: {fromInput: first.idempotencyKey}
+        email: {fromInput: first.email}
+        name: {fromInput: first.name}
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: >-
+              idempotentReplayed == true && customerId == "{{first.customerId}}" &&
+              originalRequest == "{{first.requestId}}" && requestId != "{{first.requestId}}"

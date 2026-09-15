@@ -1,0 +1,28 @@
+# A page of the balance's transactions, newest first, and the newest one read by its ID: the same
+# transaction, with its currency, status, and source.
+intent:
+  goal: transaction
+  description: A balance transaction from the list reads back by its ID
+
+execution:
+  steps:
+    - id: page
+      node: listBalanceTransactions
+      description: The ten newest balance transactions
+      values:
+        limit: 10
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: count >= 1 && count <= 10 && firstId != ""
+
+    - id: transaction
+      node: getBalanceTransaction
+      isGoal: true
+      description: The newest transaction, read by its ID
+      values:
+        balanceTransactionId: {from: page.firstId}
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: balanceTransactionId == "{{page.firstId}}" && currency != "" && status != "" && source != ""

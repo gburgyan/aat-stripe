@@ -1,0 +1,50 @@
+# A customer created by this package leaves a customer.created event. Listed by type since the
+# customer's creation time, the event names the customer and the request that created it, and it
+# reads back by its ID. Cleanup deletes the customer.
+intent:
+  goal: event
+  description: The event for a new customer names it and the request that created it
+
+execution:
+  steps:
+    - id: create
+      node: createCustomer
+      description: A customer tagged metadata[source]=aat-stripe
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: livemode == false && source == "aat-stripe" && idempotentReplayed == false && requestId != ""
+
+    - id: events
+      node: listEvents
+      description: customer.created events since the customer was created
+      values:
+        eventType: customer.created
+        createdGte: {from: create.created}
+        limit: 100
+      repeat:
+        until: count >= 1
+        interval: 1s
+        max: 10
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: count >= 1
+
+    - id: event
+      node: getEvent
+      isGoal: true
+      description: The event about this customer, read by its ID
+      values:
+        eventId:
+          from: events.events
+          select:
+            strategy: first
+            field: id
+            filter: objectId == "{{create.customerId}}"
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: >-
+              eventType == "customer.created" && objectId == "{{create.customerId}}" && objectType == "customer" &&
+              requestId == "{{create.requestId}}" && livemode == false && apiVersion != ""

@@ -1,0 +1,19 @@
+adapter: getBalanceSettings
+protocol: http
+
+request:
+  method: GET
+  path: /v1/balance_settings
+
+response:
+  extract:
+    debitNegativeBalances: payments.debit_negative_balances
+    payoutInterval:
+      path: payments.payouts.schedule.interval
+      default: ""
+    payoutStatus:
+      path: payments.payouts.status
+      default: ""
+    settlementDelayDays:
+      path: payments.settlement_timing.delay_days
+      default: 0

@@ -1,0 +1,11 @@
+adapter: deleteCustomer
+protocol: http
+
+request:
+  method: DELETE
+  path: /v1/customers/{{customerId}}
+
+response:
+  extract:
+    customerId: id
+    deleted: deleted

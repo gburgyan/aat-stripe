@@ -1,0 +1,17 @@
+adapter: getBalance
+protocol: http
+
+request:
+  method: GET
+  path: /v1/balance
+
+response:
+  extract:
+    livemode: livemode
+    availableUsd:
+      path: 'available.#(currency=="usd").amount'
+      default: 0
+    pendingUsd:
+      path: 'pending.#(currency=="usd").amount'
+      default: 0
+    currencyCount: 'available.#'

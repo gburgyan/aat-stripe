@@ -1,0 +1,40 @@
+adapter: createCustomer
+protocol: http
+
+request:
+  method: POST
+  path: /v1/customers
+  headers:
+    Idempotency-Key: "{{idempotencyKey}}"
+  form:
+    email: "{{email}}"
+    name: "{{name}}"
+    description: "{{description}}"
+    metadata:
+      source: aat-stripe
+
+response:
+  extract:
+    customerId: id
+    email: email
+    name:
+      path: name
+      default: ""
+    livemode: livemode
+    created: created
+    source:
+      path: metadata.source
+      default: ""
+    testClock:
+      path: test_clock
+      default: ""
+    idempotentReplayed:
+      header: Idempotent-Replayed
+      default: false
+    requestId:
+      header: Request-Id
+    originalRequest:
+      header: Original-Request
+      default: ""
+    stripeVersion:
+      header: Stripe-Version

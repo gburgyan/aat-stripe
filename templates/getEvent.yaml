@@ -1,0 +1,26 @@
+adapter: getEvent
+protocol: http
+
+request:
+  method: GET
+  path: /v1/events/{{eventId}}
+
+response:
+  extract:
+    eventId: id
+    eventType: type
+    apiVersion: api_version
+    livemode: livemode
+    created: created
+    objectId:
+      path: data.object.id
+      default: ""
+    objectType:
+      path: data.object.object
+      default: ""
+    requestId:
+      path: request.id
+      default: ""
+    idempotencyKey:
+      path: request.idempotency_key
+      default: ""

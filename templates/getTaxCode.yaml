@@ -1,0 +1,12 @@
+adapter: getTaxCode
+protocol: http
+
+request:
+  method: GET
+  path: /v1/tax_codes/{{taxCodeId}}
+
+response:
+  extract:
+    taxCodeId: id
+    name: name
+    description: description
