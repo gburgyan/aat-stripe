@@ -1,0 +1,56 @@
+# A captured payment refunded in full: the refund succeeds at once for the whole amount, on the payment's charge,
+# with the reason given, and the PaymentIntent's charge then reads as refunded.
+intent:
+  goal: refundedRead
+  description: A card payment is refunded in full
+
+execution:
+  steps:
+    - id: balance
+      node: getBalance
+      description: The balance, in test mode, before anything is created
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: livemode == false
+
+    - id: customer
+      node: createCustomer
+      dependsOn: [balance]
+      description: The paying customer
+
+    - id: pay
+      node: createPaymentIntent
+      dependsOn: [customer]
+      description: A card payment, captured at once
+      values:
+        confirm: true
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: livemode == false && status == "succeeded" && amountReceived == amount
+
+    - id: refund
+      node: createRefund
+      description: Refund the whole payment
+      values:
+        paymentIntentId: {from: pay.paymentIntentId}
+        reason: requested_by_customer
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: >-
+              status == "succeeded" && amount == "{{pay.amount}}" && currency == "{{pay.currency}}" &&
+              chargeId == "{{pay.latestChargeId}}" && reason == "requested_by_customer" && source == "aat-stripe"
+
+    - id: refundedRead
+      node: getPaymentIntent
+      dependsOn: [refund]
+      isGoal: true
+      description: The payment after the refund
+      values:
+        paymentIntentId: {from: pay.paymentIntentId}
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: status == "succeeded" && refunded == true && amountRefunded == "{{pay.amount}}"

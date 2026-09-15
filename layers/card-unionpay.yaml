@@ -1,0 +1,6 @@
+name: card-unionpay
+description: Pay with a UnionPay card
+selectionHint: A UnionPay card
+inputs:
+  createPaymentIntent.paymentMethod: pm_card_unionpay
+  createPaymentIntent.expectedBrand: unionpay

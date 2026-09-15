@@ -1,0 +1,6 @@
+name: card-amex
+description: Pay with an American Express card
+selectionHint: An American Express card
+inputs:
+  createPaymentIntent.paymentMethod: pm_card_amex
+  createPaymentIntent.expectedBrand: amex

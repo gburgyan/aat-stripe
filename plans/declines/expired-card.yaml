@@ -1,0 +1,10 @@
+# An expired card: 402 card_error expired_card, then paid with another card.
+kind: recipe
+metadata:
+  prompt: Pay with an expired card
+  graphVersion: "1.0.0"
+selection:
+  workflow: Declined Card
+  description: Refused as expired, then paid
+  choices:
+    decline: Expired Card

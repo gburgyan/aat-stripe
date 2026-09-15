@@ -1,0 +1,60 @@
+# A decline, then a working card on the same PaymentIntent. The PaymentIntent is created without a card, since a
+# create that confirms and is declined answers 402 with the ID only in the error. The decline slot confirms it with
+# a card that fails, the PaymentIntent stays open with the decline recorded, and a working card pays it.
+intent:
+  goal: retry
+  description: A declined card leaves the PaymentIntent open for another card, which pays it
+
+execution:
+  steps:
+    - id: balance
+      node: getBalance
+      description: The balance, in test mode, before anything is created
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: livemode == false
+
+    - id: customer
+      node: createCustomer
+      dependsOn: [balance]
+      description: The paying customer
+
+    - id: create
+      node: createPaymentIntent
+      dependsOn: [customer]
+      description: A PaymentIntent without a card yet
+      values:
+        paymentMethod: {}
+        expectedBrand: {}
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: livemode == false && status == "requires_payment_method" && amountReceived == 0 && paymentMethodId == ""
+
+    - slot: decline
+      dependsOn: [create]
+
+    - id: afterDecline
+      node: getPaymentIntent
+      dependsOn: [decline]
+      description: The PaymentIntent after the decline, still open with the error recorded
+      values:
+        paymentIntentId: {from: create.paymentIntentId}
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: status == "requires_payment_method" && lastErrorType == "card_error" && lastErrorCode != "" && amountReceived == 0
+
+    - id: retry
+      node: confirmPaymentIntent
+      dependsOn: [afterDecline]
+      isGoal: true
+      description: The same PaymentIntent, paid with a card that works
+      values:
+        paymentIntentId: {from: create.paymentIntentId}
+        paymentMethod: pm_card_visa
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: status == "succeeded" && amountReceived == amount && lastErrorCode == "" && paymentIntentId == "{{create.paymentIntentId}}"

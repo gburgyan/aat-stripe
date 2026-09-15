@@ -1,0 +1,19 @@
+execution:
+  steps:
+    - id: declined
+      node: confirmPaymentIntent
+      description: Confirm with a card whose CVC is wrong
+      values:
+        paymentIntentId: {from: create.paymentIntentId}
+        paymentMethod: pm_card_chargeDeclinedIncorrectCvc
+      expectFailure:
+        status: [402]
+        description: card_error incorrect_cvc incorrect_cvc
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: >-
+              error.type == "card_error" && error.code == "incorrect_cvc" && error.decline_code == "incorrect_cvc" &&
+              error.param == "cvc" &&
+              error.advice_code == "confirm_card_data" &&
+              error.payment_intent.id == "{{create.paymentIntentId}}" && error.payment_intent.status == "requires_payment_method"

@@ -1,0 +1,76 @@
+# A payment refunded in two parts: all but 500, then the rest, which a refund without an amount takes. The charge
+# ends refunded in full, and its two refunds add up to the payment.
+intent:
+  goal: refunds
+  description: A card payment is refunded in two parts that add up to it
+
+execution:
+  steps:
+    - id: balance
+      node: getBalance
+      description: The balance, in test mode, before anything is created
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: livemode == false
+
+    - id: customer
+      node: createCustomer
+      dependsOn: [balance]
+      description: The paying customer
+
+    - id: pay
+      node: createPaymentIntent
+      dependsOn: [customer]
+      description: A card payment, captured at once
+      values:
+        confirm: true
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: livemode == false && status == "succeeded" && amountReceived == amount
+
+    - id: firstPart
+      node: createRefund
+      description: Refund all but 500
+      values:
+        paymentIntentId: {from: pay.paymentIntentId}
+        amount: "{{pay.amount - 500}}"
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: status == "succeeded" && amount == "{{pay.amount - 500}}"
+
+    - id: rest
+      node: createRefund
+      dependsOn: [firstPart]
+      description: Refund what remains, without naming an amount
+      values:
+        paymentIntentId: {from: pay.paymentIntentId}
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: status == "succeeded" && amount == 500
+
+    - id: charge
+      node: getCharge
+      dependsOn: [rest]
+      description: The charge after both refunds
+      values:
+        chargeId: {from: pay.latestChargeId}
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: refunded == true && amountRefunded == "{{pay.amount}}" && amountCaptured == "{{pay.amount}}"
+
+    - id: refunds
+      node: listRefunds
+      dependsOn: [charge]
+      isGoal: true
+      description: The payment's refunds
+      values:
+        paymentIntentId: {from: pay.paymentIntentId}
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: count == 2 && totalAmount == "{{pay.amount}}"

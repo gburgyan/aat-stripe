@@ -1,0 +1,10 @@
+# A decline for insufficient funds: 402 card_declined insufficient_funds, then paid with another card.
+kind: recipe
+metadata:
+  prompt: Pay with a card without the funds
+  graphVersion: "1.0.0"
+selection:
+  workflow: Declined Card
+  description: Declined for insufficient funds, then paid
+  choices:
+    decline: Insufficient Funds

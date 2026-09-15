@@ -1,0 +1,103 @@
+# Incremental authorization is gated on this account. A confirming create that asks for it is 400
+# payment_intent_invalid_parameter ("not eligible for the requested card features") and still leaves a PaymentIntent
+# open, which the plan finds under the customer and cancels. Incrementing an ordinary authorization is refused too,
+# with no code, since incremental authorization wasn't requested.
+intent:
+  goal: raiseRefused
+  description: Incremental authorization is refused on this account, when requested and on an ordinary authorization
+
+execution:
+  steps:
+    - id: balance
+      node: getBalance
+      description: The balance, in test mode, before anything is created
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: livemode == false
+
+    - id: customer
+      node: createCustomer
+      dependsOn: [balance]
+      description: The paying customer
+
+    - id: requested
+      node: createPaymentIntent
+      dependsOn: [customer]
+      description: Authorize a card, asking for incremental authorization
+      values:
+        confirm: true
+        captureMethod: manual
+        requestIncrementalAuthorization: if_available
+      expectFailure:
+        status: [400]
+        description: payment_intent_invalid_parameter, since the account isn't eligible
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: >-
+              error.type == "invalid_request_error" && error.code == "payment_intent_invalid_parameter" &&
+              error.payment_intent.status == "requires_payment_method"
+          - type: fieldAbsent
+            path: error.param
+          - type: fieldAbsent
+            path: error.decline_code
+
+    - id: leftOpen
+      node: listPaymentIntents
+      dependsOn: [requested]
+      description: The customer's PaymentIntents after the refusal
+      values:
+        customerId: {from: customer.customerId}
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: count == 1 && ourOpenCount == 1
+
+    - id: cancelLeftOpen
+      node: cancelPaymentIntent
+      description: Cancel the PaymentIntent the refused create left open
+      values:
+        paymentIntentId:
+          from: leftOpen.paymentIntents
+          select:
+            strategy: first
+            field: id
+            filter: status == "requires_payment_method"
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: status == "canceled"
+
+    - id: authorize
+      node: createPaymentIntent
+      dependsOn: [cancelLeftOpen]
+      description: An ordinary authorization
+      values:
+        confirm: true
+        captureMethod: manual
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: status == "requires_capture" && amountCapturable == amount
+
+    - id: raiseRefused
+      node: incrementAuthorization
+      isGoal: true
+      description: Raise the ordinary authorization by 1000
+      values:
+        paymentIntentId: {from: authorize.paymentIntentId}
+        amount: "{{authorize.amount + 1000}}"
+      expectFailure:
+        status: [400]
+        description: incremental authorization wasn't requested
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: error.type == "invalid_request_error"
+          - type: fieldAbsent
+            path: error.code
+          - type: fieldAbsent
+            path: error.param
+          - type: fieldAbsent
+            path: error.decline_code

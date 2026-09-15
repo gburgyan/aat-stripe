@@ -1,0 +1,5 @@
+name: amount-large
+description: A large payment of 250000 in the currency's smallest unit
+selectionHint: A large amount
+inputs:
+  createPaymentIntent.amount: 250000

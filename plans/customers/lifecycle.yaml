@@ -1,6 +1,6 @@
-# A customer from creation to deletion: read back, found by its email, and deleted. A deleted customer
-# still reads 200, with deleted: true and nothing else, and deleting it again is 404 resource_missing on
-# param id. The plan's own delete releases the create's cleanup entry.
+# A customer from creation to deletion: read back, found by its email, and deleted. A deleted customer still reads
+# 200, with deleted: true and nothing else, and deleting it again is 404 resource_missing on param id. The plan's own
+# delete releases the create's cleanup entry.
 intent:
   goal: deletedRead
   description: A customer is created, found, deleted, and still readable as deleted
@@ -73,3 +73,5 @@ execution:
         mechanical:
           - type: predicate
             expr: error.type == "invalid_request_error" && error.code == "resource_missing" && error.param == "id"
+          - type: fieldAbsent
+            path: error.decline_code

@@ -1,6 +1,6 @@
-# The balance settings written back as they are. The payout interval is accepted and answered as sent.
-# The negative-balance debit is refused even unchanged, since an activated account can't change it
-# through the API, and a second read matches the first, settlement timing included.
+# The balance settings written back as they are. The payout interval is accepted and answered as sent. The
+# negative-balance debit is refused even unchanged, since an activated account can't change it through the API (400 on
+# its param, with no code), and a second read matches the first, settlement timing included.
 intent:
   goal: reread
   description: Balance settings take their own payout interval back, refuse the debit setting, and stay unchanged
@@ -41,6 +41,10 @@ execution:
         mechanical:
           - type: predicate
             expr: error.type == "invalid_request_error" && error.param == "payments[debit_negative_balances]"
+          - type: fieldAbsent
+            path: error.code
+          - type: fieldAbsent
+            path: error.decline_code
 
     - id: reread
       node: getBalanceSettings

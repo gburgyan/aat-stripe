@@ -1,0 +1,69 @@
+# An unconfirmed PaymentIntent changes its amount, description, and metadata, and is found under its customer.
+# Cleanup reads it, finds it still open, and cancels it.
+intent:
+  goal: listed
+  description: A PaymentIntent is updated before it is confirmed, and listed under its customer
+
+execution:
+  steps:
+    - id: balance
+      node: getBalance
+      description: The balance, in test mode, before anything is created
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: livemode == false
+
+    - id: customer
+      node: createCustomer
+      dependsOn: [balance]
+      description: The paying customer
+
+    - id: create
+      node: createPaymentIntent
+      dependsOn: [customer]
+      description: A PaymentIntent without a card yet
+      values:
+        amount: 1500
+        paymentMethod: {}
+        expectedBrand: {}
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: livemode == false && status == "requires_payment_method" && amount == 1500
+
+    - id: update
+      node: updatePaymentIntent
+      description: Raise the amount by 500 and describe it
+      values:
+        paymentIntentId: {from: create.paymentIntentId}
+        amount: "{{create.amount + 500}}"
+        description: AAT Stripe update
+        note: updated
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: amount == 2000 && description == "AAT Stripe update" && note == "updated" && status == "requires_payment_method"
+
+    - id: read
+      node: getPaymentIntent
+      dependsOn: [update]
+      description: The PaymentIntent read back
+      values:
+        paymentIntentId: {from: create.paymentIntentId}
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: amount == "{{update.amount}}" && status == "requires_payment_method" && customerId == "{{customer.customerId}}"
+
+    - id: listed
+      node: listPaymentIntents
+      dependsOn: [read]
+      isGoal: true
+      description: The customer's PaymentIntents
+      values:
+        customerId: {from: customer.customerId}
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: count == 1 && ourCount == 1 && ourOpenCount == 1 && lastId == "{{create.paymentIntentId}}"

@@ -1,0 +1,5 @@
+name: currency-gbp
+description: Charge in pounds sterling, in pence
+selectionHint: Pounds sterling
+inputs:
+  createPaymentIntent.currency: gbp

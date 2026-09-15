@@ -1,0 +1,39 @@
+# What every card payment plan shares: the balance is read first and must be in test mode, a customer is created,
+# the capture slot pays, and the PaymentIntent is read back with its charge.
+intent:
+  goal: readBack
+  description: A new customer pays by card, captured the way the capture slot chooses
+
+execution:
+  steps:
+    - id: balance
+      node: getBalance
+      description: The balance, in test mode, before anything is created
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: livemode == false
+
+    - id: customer
+      node: createCustomer
+      dependsOn: [balance]
+      description: The paying customer
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: livemode == false && source == "aat-stripe"
+
+    - slot: capture
+      dependsOn: [customer]
+
+    - id: readBack
+      node: getPaymentIntent
+      dependsOn: [capture]
+      isGoal: true
+      description: The PaymentIntent as it ended, with its charge
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: >-
+              livemode == false && source == "aat-stripe" && customerId == "{{customer.customerId}}" &&
+              cardBrand == expectedBrand && latestChargeId != ""

@@ -1,0 +1,16 @@
+adapter: updateRefund
+protocol: http
+
+request:
+  method: POST
+  path: /v1/refunds/{{refundId}}
+  form:
+    metadata:
+      note: "{{note}}"
+
+response:
+  extract:
+    refundId: id
+    note:
+      path: metadata.note
+      default: ""

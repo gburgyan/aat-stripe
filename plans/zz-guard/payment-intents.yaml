@@ -1,0 +1,25 @@
+# Every PaymentIntent created since the package started (packageEpoch in env.yaml), a page at a time: none the package
+# created is left in a requires_ state, and none is in live mode. Cleanup cancels every open PaymentIntent a plan
+# leaves, so one still open means a cleanup didn't run. Run it last, after a sequential batch.
+intent:
+  goal: paymentIntents
+  description: No PaymentIntent this package created is left open, across every page since the package started
+
+execution:
+  steps:
+    - id: paymentIntents
+      node: listPaymentIntents
+      isGoal: true
+      description: Every page of PaymentIntents since packageEpoch, counted by source and state
+      values:
+        limit: 100
+        createdGte: "{{env.packageEpoch}}"
+      repeat:
+        next: {startingAfter: lastId}
+        until: hasMore == false
+        collect: [count, ourCount, ourOpenCount, ourOpen, liveCount]
+        max: 100
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: ourOpenCount == 0 && liveCount == 0

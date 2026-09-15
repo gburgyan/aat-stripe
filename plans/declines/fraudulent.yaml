@@ -1,0 +1,10 @@
+# A decline for suspected fraud: 402 card_declined fraudulent, then paid with another card.
+kind: recipe
+metadata:
+  prompt: Pay with a card the issuer suspects of fraud
+  graphVersion: "1.0.0"
+selection:
+  workflow: Declined Card
+  description: Declined as fraudulent, then paid
+  choices:
+    decline: Fraudulent

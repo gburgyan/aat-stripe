@@ -1,0 +1,5 @@
+name: currency-usd
+description: Charge in US dollars, in cents
+selectionHint: US dollars
+inputs:
+  createPaymentIntent.currency: usd

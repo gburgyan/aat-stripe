@@ -1,0 +1,6 @@
+name: card-mastercard
+description: Pay with a Mastercard
+selectionHint: A Mastercard
+inputs:
+  createPaymentIntent.paymentMethod: pm_card_mastercard
+  createPaymentIntent.expectedBrand: mastercard

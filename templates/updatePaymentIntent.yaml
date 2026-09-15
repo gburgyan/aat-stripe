@@ -1,0 +1,25 @@
+adapter: updatePaymentIntent
+protocol: http
+
+request:
+  method: POST
+  path: /v1/payment_intents/{{paymentIntentId}}
+  headers:
+    Idempotency-Key: "{{idempotencyKey}}"
+  form:
+    amount: "{{amount}}"
+    description: "{{description}}"
+    metadata:
+      note: "{{note}}"
+
+response:
+  extract:
+    paymentIntentId: id
+    status: status
+    amount: amount
+    description:
+      path: description
+      default: ""
+    note:
+      path: metadata.note
+      default: ""

@@ -1,0 +1,11 @@
+adapter: getPaymentIntentForCleanup
+protocol: http
+
+request:
+  method: GET
+  path: /v1/payment_intents/{{paymentIntentId}}
+
+response:
+  extract:
+    paymentIntentId: id
+    status: status

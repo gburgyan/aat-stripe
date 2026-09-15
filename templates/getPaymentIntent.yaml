@@ -1,0 +1,74 @@
+adapter: getPaymentIntent
+protocol: http
+
+request:
+  method: GET
+  path: /v1/payment_intents/{{paymentIntentId}}?expand[]=latest_charge
+
+response:
+  extract:
+    paymentIntentId: id
+    status: status
+    amount: amount
+    currency: currency
+    amountCapturable: amount_capturable
+    amountReceived: amount_received
+    captureMethod: capture_method
+    livemode: livemode
+    customerId:
+      path: customer
+      default: ""
+    paymentMethodId:
+      path: payment_method
+      default: ""
+    latestChargeId:
+      path: latest_charge.id
+      default: ""
+    cardBrand:
+      path: latest_charge.payment_method_details.card.brand
+      default: ""
+    cardCountry:
+      path: latest_charge.payment_method_details.card.country
+      default: ""
+    cardFunding:
+      path: latest_charge.payment_method_details.card.funding
+      default: ""
+    chargeStatus:
+      path: latest_charge.status
+      default: ""
+    captured:
+      path: latest_charge.captured
+      default: false
+    amountRefunded:
+      path: latest_charge.amount_refunded
+      default: 0
+    refunded:
+      path: latest_charge.refunded
+      default: false
+    outcomeType:
+      path: latest_charge.outcome.type
+      default: ""
+    riskLevel:
+      path: latest_charge.outcome.risk_level
+      default: ""
+    nextActionType:
+      path: next_action.type
+      default: ""
+    lastErrorType:
+      path: last_payment_error.type
+      default: ""
+    lastErrorCode:
+      path: last_payment_error.code
+      default: ""
+    lastDeclineCode:
+      path: last_payment_error.decline_code
+      default: ""
+    cancellationReason:
+      path: cancellation_reason
+      default: ""
+    expectedBrand:
+      path: metadata.expected_brand
+      default: ""
+    source:
+      path: metadata.source
+      default: ""

@@ -1,0 +1,10 @@
+# An authorization canceled: the PaymentIntent ends canceled with the reason given, nothing received, and nothing left to capture.
+kind: recipe
+metadata:
+  prompt: Authorize a card, then cancel it
+  graphVersion: "1.0.0"
+selection:
+  workflow: Card Payment
+  description: Authorized, then canceled
+  choices:
+    capture: Cancel Authorization

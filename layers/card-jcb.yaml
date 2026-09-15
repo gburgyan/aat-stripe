@@ -1,0 +1,6 @@
+name: card-jcb
+description: Pay with a JCB card
+selectionHint: A JCB card
+inputs:
+  createPaymentIntent.paymentMethod: pm_card_jcb
+  createPaymentIntent.expectedBrand: jcb

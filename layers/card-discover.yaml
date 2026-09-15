@@ -1,0 +1,6 @@
+name: card-discover
+description: Pay with a Discover card
+selectionHint: A Discover card
+inputs:
+  createPaymentIntent.paymentMethod: pm_card_discover
+  createPaymentIntent.expectedBrand: discover

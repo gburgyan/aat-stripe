@@ -1,0 +1,6 @@
+name: card-diners
+description: Pay with a Diners Club card
+selectionHint: A Diners Club card
+inputs:
+  createPaymentIntent.paymentMethod: pm_card_diners
+  createPaymentIntent.expectedBrand: diners

@@ -1,0 +1,111 @@
+# What a refund can't do: take more than was paid (400 on param amount, with no code), refund a charge already
+# refunded in full (400 charge_already_refunded), or refund a PaymentIntent that was only authorized (400 with no
+# code or param, which says to cancel the PaymentIntent instead). Cleanup cancels the authorization.
+intent:
+  goal: refundUncaptured
+  description: Stripe refuses a refund that is too large, a second full refund, and a refund of an authorization
+
+execution:
+  steps:
+    - id: balance
+      node: getBalance
+      description: The balance, in test mode, before anything is created
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: livemode == false
+
+    - id: customer
+      node: createCustomer
+      dependsOn: [balance]
+      description: The paying customer
+
+    - id: pay
+      node: createPaymentIntent
+      dependsOn: [customer]
+      description: A card payment, captured at once
+      values:
+        confirm: true
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: livemode == false && status == "succeeded" && amountReceived == amount
+
+    - id: tooMuch
+      node: createRefund
+      description: Refund 1 more than was paid
+      values:
+        paymentIntentId: {from: pay.paymentIntentId}
+        amount: "{{pay.amount + 1}}"
+      expectFailure:
+        status: [400]
+        description: more than the payment, on param amount
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: error.type == "invalid_request_error" && error.param == "amount"
+          - type: fieldAbsent
+            path: error.code
+          - type: fieldAbsent
+            path: error.decline_code
+
+    - id: refundAll
+      node: createRefund
+      dependsOn: [tooMuch]
+      description: Refund the whole payment
+      values:
+        paymentIntentId: {from: pay.paymentIntentId}
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: status == "succeeded" && amount == "{{pay.amount}}"
+
+    - id: refundAgain
+      node: createRefund
+      dependsOn: [refundAll]
+      description: Refund it a second time
+      values:
+        paymentIntentId: {from: pay.paymentIntentId}
+      expectFailure:
+        status: [400]
+        description: charge_already_refunded
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: error.type == "invalid_request_error" && error.code == "charge_already_refunded"
+          - type: fieldAbsent
+            path: error.param
+          - type: fieldAbsent
+            path: error.decline_code
+
+    - id: authorize
+      node: createPaymentIntent
+      dependsOn: [refundAgain]
+      description: An authorization that isn't captured
+      values:
+        confirm: true
+        captureMethod: manual
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: status == "requires_capture" && amountReceived == 0
+
+    - id: refundUncaptured
+      node: createRefund
+      isGoal: true
+      description: Refund the authorization
+      values:
+        paymentIntentId: {from: authorize.paymentIntentId}
+      expectFailure:
+        status: [400]
+        description: nothing captured to refund; cancel the PaymentIntent instead
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: error.type == "invalid_request_error"
+          - type: fieldAbsent
+            path: error.code
+          - type: fieldAbsent
+            path: error.param
+          - type: fieldAbsent
+            path: error.decline_code

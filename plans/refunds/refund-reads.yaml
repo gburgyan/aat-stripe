@@ -1,0 +1,112 @@
+# A refund and its charge from every side: the refund's metadata is updated and it reads back, the PaymentIntent's
+# refunds and charges are listed, and the charge is read, with the refund counted, and described.
+intent:
+  goal: charges
+  description: A partly refunded payment's refund and charge are read, updated, and listed
+
+execution:
+  steps:
+    - id: balance
+      node: getBalance
+      description: The balance, in test mode, before anything is created
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: livemode == false
+
+    - id: customer
+      node: createCustomer
+      dependsOn: [balance]
+      description: The paying customer
+
+    - id: pay
+      node: createPaymentIntent
+      dependsOn: [customer]
+      description: A card payment, captured at once
+      values:
+        confirm: true
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: livemode == false && status == "succeeded" && amountReceived == amount
+
+    - id: refund
+      node: createRefund
+      description: Refund 500 of the payment
+      values:
+        paymentIntentId: {from: pay.paymentIntentId}
+        amount: 500
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: status == "succeeded" && amount == 500
+
+    - id: noted
+      node: updateRefund
+      description: Add a note to the refund
+      values:
+        refundId: {from: refund.refundId}
+        note: checked
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: note == "checked" && refundId == "{{refund.refundId}}"
+
+    - id: refundRead
+      node: getRefund
+      dependsOn: [noted]
+      description: The refund read back
+      values:
+        refundId: {from: refund.refundId}
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: status == "succeeded" && amount == 500 && paymentIntentId == "{{pay.paymentIntentId}}" && source == "aat-stripe"
+
+    - id: refunds
+      node: listRefunds
+      dependsOn: [refundRead]
+      description: The payment's refunds
+      values:
+        paymentIntentId: {from: pay.paymentIntentId}
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: count == 1 && lastId == "{{refund.refundId}}" && totalAmount == 500
+
+    - id: charge
+      node: getCharge
+      dependsOn: [refunds]
+      description: The payment's charge, with the refund counted
+      values:
+        chargeId: {from: pay.latestChargeId}
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: >-
+              livemode == false && amountRefunded == 500 && refunded == false && captured == true && paid == true &&
+              cardBrand == "{{pay.cardBrand}}" && paymentIntentId == "{{pay.paymentIntentId}}" && balanceTransactionId != ""
+
+    - id: described
+      node: updateCharge
+      description: Describe the charge and add a note
+      values:
+        chargeId: {from: pay.latestChargeId}
+        description: AAT Stripe charge
+        note: described
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: description == "AAT Stripe charge" && note == "described"
+
+    - id: charges
+      node: listCharges
+      dependsOn: [described]
+      isGoal: true
+      description: The payment's charges
+      values:
+        paymentIntentId: {from: pay.paymentIntentId}
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: count == 1 && lastId == "{{pay.latestChargeId}}"

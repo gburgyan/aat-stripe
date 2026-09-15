@@ -1,0 +1,6 @@
+name: card-visa-debit
+description: Pay with a Visa debit card
+selectionHint: A debit card
+inputs:
+  createPaymentIntent.paymentMethod: pm_card_visa_debit
+  createPaymentIntent.expectedBrand: visa

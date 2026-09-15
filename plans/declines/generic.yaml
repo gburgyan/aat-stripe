@@ -1,0 +1,10 @@
+# A generic decline: 402 card_error card_declined generic_decline, naming the PaymentIntent, which then pays with another card.
+kind: recipe
+metadata:
+  prompt: Pay with a card that is declined
+  graphVersion: "1.0.0"
+selection:
+  workflow: Declined Card
+  description: Declined without a reason, then paid
+  choices:
+    decline: Generic Decline

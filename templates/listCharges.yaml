@@ -1,0 +1,21 @@
+adapter: listCharges
+protocol: http
+
+request:
+  method: GET
+  path: /v1/charges?limit={{limit}}{{?paymentIntentId}}&payment_intent={{paymentIntentId}}{{/paymentIntentId}}{{?customerId}}&customer={{customerId}}{{/customerId}}{{?startingAfter}}&starting_after={{startingAfter}}{{/startingAfter}}
+
+response:
+  extract:
+    charges:
+      path: data
+      fields:
+        id: id
+        status: status
+        amount: amount
+        refunded: refunded
+    count: 'data.#'
+    hasMore: has_more
+    lastId:
+      path: data.@reverse.0.id
+      default: ""

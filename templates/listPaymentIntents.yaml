@@ -1,0 +1,38 @@
+adapter: listPaymentIntents
+protocol: http
+
+request:
+  method: GET
+  path: /v1/payment_intents?limit={{limit}}{{?customerId}}&customer={{customerId}}{{/customerId}}{{?createdGte}}&created[gte]={{createdGte}}{{/createdGte}}{{?startingAfter}}&starting_after={{startingAfter}}{{/startingAfter}}
+
+response:
+  extract:
+    paymentIntents:
+      path: data
+      fields:
+        id: id
+        status: status
+        amount: amount
+    count: 'data.#'
+    hasMore: has_more
+    lastId:
+      path: data.@reverse.0.id
+      default: ""
+  # PaymentIntents this package creates carry metadata.source "aat-stripe". A page counts those, and those
+  # of them still in a requires_ state, which it lists so a guard that fails can name them.
+  transform: |
+    local ours, open, live = 0, {}, 0
+    for _, pi in ipairs(json_path("data") or {}) do
+      if type(pi.metadata) == "table" and pi.metadata.source == "aat-stripe" then
+        ours = ours + 1
+        if type(pi.status) == "string" and pi.status:sub(1, 9) == "requires_" then
+          table.insert(open, {id = pi.id, status = pi.status, created = pi.created})
+        end
+      end
+      if pi.livemode == true then live = live + 1 end
+    end
+    outputs.ourCount = ours
+    outputs.ourOpenCount = #open
+    if #open > 0 then outputs.ourOpen = open end
+    outputs.liveCount = live
+    return outputs

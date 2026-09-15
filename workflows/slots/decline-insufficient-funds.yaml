@@ -1,0 +1,20 @@
+execution:
+  steps:
+    - id: declined
+      node: confirmPaymentIntent
+      description: Confirm with a card without the funds
+      values:
+        paymentIntentId: {from: create.paymentIntentId}
+        paymentMethod: pm_card_visa_chargeDeclinedInsufficientFunds
+      expectFailure:
+        status: [402]
+        description: card_error card_declined insufficient_funds
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: >-
+              error.type == "card_error" && error.code == "card_declined" && error.decline_code == "insufficient_funds" &&
+              error.advice_code == "try_again_later" &&
+              error.payment_intent.id == "{{create.paymentIntentId}}" && error.payment_intent.status == "requires_payment_method"
+          - type: fieldAbsent
+            path: error.param

@@ -1,0 +1,10 @@
+# A decline for a lost card: 402 card_declined lost_card, then paid with another card.
+kind: recipe
+metadata:
+  prompt: Pay with a lost card
+  graphVersion: "1.0.0"
+selection:
+  workflow: Declined Card
+  description: Declined as lost, then paid
+  choices:
+    decline: Lost Card

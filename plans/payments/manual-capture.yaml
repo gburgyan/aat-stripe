@@ -1,0 +1,10 @@
+# An authorization captured later: the confirmed PaymentIntent waits in requires_capture with the whole amount capturable, and one capture receives it all.
+kind: recipe
+metadata:
+  prompt: Authorize a card, then capture it
+  graphVersion: "1.0.0"
+selection:
+  workflow: Card Payment
+  description: Authorized, then captured in full
+  choices:
+    capture: Manual Capture

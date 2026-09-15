@@ -1,0 +1,10 @@
+# A card payment captured at once: the PaymentIntent succeeds on create with its whole amount received, and its charge has the brand the layers chose. Cleanup finds nothing open to cancel.
+kind: recipe
+metadata:
+  prompt: Pay by card and capture at once
+  graphVersion: "1.0.0"
+selection:
+  workflow: Card Payment
+  description: Captured when the PaymentIntent is confirmed
+  choices:
+    capture: Automatic Capture

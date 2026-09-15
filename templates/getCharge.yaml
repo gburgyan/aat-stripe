@@ -1,0 +1,50 @@
+adapter: getCharge
+protocol: http
+
+request:
+  method: GET
+  path: /v1/charges/{{chargeId}}
+
+response:
+  extract:
+    chargeId: id
+    status: status
+    amount: amount
+    amountCaptured: amount_captured
+    amountRefunded: amount_refunded
+    currency: currency
+    captured: captured
+    refunded: refunded
+    paid: paid
+    disputed: disputed
+    livemode: livemode
+    paymentIntentId:
+      path: payment_intent
+      default: ""
+    balanceTransactionId:
+      path: balance_transaction
+      default: ""
+    cardBrand:
+      path: payment_method_details.card.brand
+      default: ""
+    cardCountry:
+      path: payment_method_details.card.country
+      default: ""
+    cardFunding:
+      path: payment_method_details.card.funding
+      default: ""
+    cardLast4:
+      path: payment_method_details.card.last4
+      default: ""
+    outcomeType:
+      path: outcome.type
+      default: ""
+    riskLevel:
+      path: outcome.risk_level
+      default: ""
+    networkStatus:
+      path: outcome.network_status
+      default: ""
+    failureCode:
+      path: failure_code
+      default: ""

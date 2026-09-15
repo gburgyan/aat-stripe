@@ -1,0 +1,22 @@
+execution:
+  steps:
+    - id: authorize
+      node: createPaymentIntent
+      description: Authorize the card without capturing
+      values:
+        confirm: true
+        captureMethod: manual
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: livemode == false && status == "requires_capture" && amountCapturable == amount && amountReceived == 0
+
+    - id: captureAll
+      node: capturePaymentIntent
+      description: Capture the whole authorization
+      values:
+        paymentIntentId: {from: authorize.paymentIntentId}
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: status == "succeeded" && amountReceived == "{{authorize.amount}}" && amountCapturable == 0

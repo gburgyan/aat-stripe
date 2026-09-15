@@ -653,3 +653,805 @@ nodes:
         display: Deleted
       - name: deleted
         type: boolean
+
+  # --- PaymentIntents --------------------------------------------------------------------------
+
+  createPaymentIntent:
+    description: >-
+      Create a PaymentIntent (POST /v1/payment_intents, 200), the object that tracks one payment from
+      creation to capture. Amounts are integers in the currency's smallest unit (cents, or whole yen
+      for jpy). With confirm true it is confirmed at once with the payment method; with
+      capture_method manual a successful confirmation stops at requires_capture. A decline on a
+      confirming create is 402 and leaves no PaymentIntent ID in a success response, so decline
+      plans create first and confirm after. Every PaymentIntent the package creates carries
+      metadata[source]=aat-stripe, and metadata[expected_brand] when a plan names the brand its
+      card should have. Cleanup reads it and cancels it while it is still open.
+    adapter: createPaymentIntent
+    tags: [payments]
+    oas:
+      operationId: PostPaymentIntents
+    inputs:
+      - name: amount
+        type: integer
+        default: 2000
+        description: The amount in the currency's smallest unit
+      - name: currency
+        type: string
+        default: usd
+      - name: customerId
+        type: string
+        optional: true
+        default:
+          from: createCustomer.customerId
+      - name: paymentMethod
+        type: string
+        optional: true
+        default: pm_card_visa
+        description: A payment method ID, or a test one such as pm_card_visa; {} for none yet
+      - name: paymentMethodTypes
+        type: string[]
+        default:
+          value: [card]
+        description: The payment method types it accepts
+      - name: captureMethod
+        type: string
+        optional: true
+        description: automatic (the default), automatic_async, or manual
+      - name: confirm
+        type: boolean
+        optional: true
+      - name: returnUrl
+        type: string
+        optional: true
+        description: Where a customer returns after authentication, for redirect-based next actions
+      - name: errorOnRequiresAction
+        type: boolean
+        optional: true
+      - name: offSession
+        type: boolean
+        optional: true
+      - name: setupFutureUsage
+        type: string
+        optional: true
+        description: on_session or off_session, to save the payment method for later
+      - name: requestIncrementalAuthorization
+        type: string
+        optional: true
+        description: if_available or never, for a card authorization that may be incremented
+      - name: description
+        type: string
+        optional: true
+      - name: expectedBrand
+        type: string
+        optional: true
+        default: visa
+        description: The card brand the plan expects, stored as metadata[expected_brand]; the default card's is visa
+      - name: idempotencyKey
+        type: string
+        optional: true
+        default: "{{uuid}}"
+        description: The Idempotency-Key header
+    outputs: &paymentIntentOutputs
+      - name: paymentIntentId
+        type: string
+        display: PaymentIntent
+      - name: status
+        type: string
+        display: Status
+      - name: amount
+        type: integer
+      - name: currency
+        type: string
+      - name: amountCapturable
+        type: integer
+      - name: amountReceived
+        type: integer
+      - name: captureMethod
+        type: string
+      - name: livemode
+        type: boolean
+      - name: customerId
+        type: string
+        description: The customer's cus_ ID; "" for none
+      - name: paymentMethodId
+        type: string
+        description: The pm_ ID of the payment method; "" for none
+      - name: latestChargeId
+        type: string
+        description: The ch_ or py_ ID of the latest charge; "" before a charge
+      - name: cardBrand
+        type: string
+        description: The latest charge's card brand, such as visa; "" without a card charge
+      - name: nextActionType
+        type: string
+        description: What the customer must do next, such as redirect_to_url; "" for nothing
+      - name: lastErrorCode
+        type: string
+        description: The last payment error's code, such as card_declined; "" for none
+      - name: lastDeclineCode
+        type: string
+        description: The last payment error's decline code, such as insufficient_funds; "" for none
+      - name: cancellationReason
+        type: string
+        description: Why it was canceled; "" while it isn't
+      - name: expectedBrand
+        type: string
+        description: metadata.expected_brand; "" when the plan named none
+      - name: source
+        type: string
+        description: metadata.source, aat-stripe for every PaymentIntent the package creates
+    errorDetection:
+      - path: livemode
+        rule: equals
+        value: true
+    cleanup:
+      node: getPaymentIntentForCleanup
+      releasedBy: [cancelPaymentIntent]
+
+  getPaymentIntent:
+    description: >-
+      Read a PaymentIntent with its latest charge expanded (GET /v1/payment_intents/{intent}, 200):
+      its status and amounts, the charge's card brand, country, and funding, the charge's outcome and
+      risk level, and what was refunded. A declined confirmation leaves it requires_payment_method
+      with last_payment_error set; a successful one leaves last_payment_error null.
+    adapter: getPaymentIntent
+    tags: [payments]
+    oas:
+      operationId: GetPaymentIntentsIntent
+    inputs:
+      - name: paymentIntentId
+        type: string
+        description: The pi_ ID
+        default:
+          from: createPaymentIntent.paymentIntentId
+    outputs:
+      - name: paymentIntentId
+        type: string
+        display: PaymentIntent
+      - name: status
+        type: string
+        display: Status
+      - name: amount
+        type: integer
+      - name: currency
+        type: string
+      - name: amountCapturable
+        type: integer
+      - name: amountReceived
+        type: integer
+      - name: captureMethod
+        type: string
+      - name: livemode
+        type: boolean
+      - name: customerId
+        type: string
+      - name: paymentMethodId
+        type: string
+      - name: latestChargeId
+        type: string
+      - name: cardBrand
+        type: string
+      - name: cardCountry
+        type: string
+        description: The card's issuing country; "" without a card charge
+      - name: cardFunding
+        type: string
+        description: credit, debit, prepaid, or unknown; "" without a card charge
+      - name: chargeStatus
+        type: string
+        description: succeeded, pending, or failed; "" before a charge
+      - name: captured
+        type: boolean
+      - name: amountRefunded
+        type: integer
+      - name: refunded
+        type: boolean
+        description: Whether the latest charge is refunded in full
+      - name: outcomeType
+        type: string
+        description: authorized, manual_review, issuer_declined, blocked, or invalid; "" before a charge
+      - name: riskLevel
+        type: string
+        description: normal, elevated, or highest; "" before a charge
+      - name: nextActionType
+        type: string
+      - name: lastErrorType
+        type: string
+        description: The last payment error's type, such as card_error; "" for none
+      - name: lastErrorCode
+        type: string
+      - name: lastDeclineCode
+        type: string
+      - name: cancellationReason
+        type: string
+      - name: expectedBrand
+        type: string
+      - name: source
+        type: string
+
+  getPaymentIntentForCleanup:
+    description: >-
+      Read a PaymentIntent's status for cleanup (GET /v1/payment_intents/{intent}, 200), so the
+      cancel that follows runs only while it can: in requires_payment_method, requires_confirmation,
+      requires_action, or requires_capture. A succeeded or canceled PaymentIntent is 400
+      payment_intent_unexpected_state to a cancel.
+    adapter: getPaymentIntentForCleanup
+    tags: [payments, cleanup]
+    oas:
+      operationId: GetPaymentIntentsIntent
+    inputs:
+      - name: paymentIntentId
+        type: string
+        default:
+          from: createPaymentIntent.paymentIntentId
+    outputs:
+      - name: paymentIntentId
+        type: string
+      - name: status
+        type: string
+        display: Status
+    cleanup:
+      node: cancelPaymentIntent
+      when: 'status in ["requires_payment_method", "requires_confirmation", "requires_action", "requires_capture"]'
+
+  updatePaymentIntent:
+    description: >-
+      Update a PaymentIntent (POST /v1/payment_intents/{intent}, 200): its amount, while it isn't
+      yet captured, and its description and metadata note.
+    adapter: updatePaymentIntent
+    tags: [payments]
+    oas:
+      operationId: PostPaymentIntentsIntent
+    inputs:
+      - name: paymentIntentId
+        type: string
+        default:
+          from: createPaymentIntent.paymentIntentId
+      - name: amount
+        type: integer
+        optional: true
+      - name: description
+        type: string
+        optional: true
+      - name: note
+        type: string
+        optional: true
+        description: Stored as metadata[note]
+      - name: idempotencyKey
+        type: string
+        optional: true
+        default: "{{uuid}}"
+    outputs:
+      - name: paymentIntentId
+        type: string
+        display: PaymentIntent
+      - name: status
+        type: string
+      - name: amount
+        type: integer
+      - name: description
+        type: string
+        description: '"" for none'
+      - name: note
+        type: string
+        description: metadata.note; "" for none
+
+  confirmPaymentIntent:
+    description: >-
+      Confirm a PaymentIntent with a payment method (POST /v1/payment_intents/{intent}/confirm,
+      200). Allowed while it is requires_payment_method, requires_confirmation, or requires_action.
+      A declined card is 402 card_error with code and decline_code, and leaves the PaymentIntent
+      requires_payment_method, ready to confirm again with another card.
+    adapter: confirmPaymentIntent
+    tags: [payments]
+    oas:
+      operationId: PostPaymentIntentsIntentConfirm
+    inputs:
+      - name: paymentIntentId
+        type: string
+        default:
+          from: createPaymentIntent.paymentIntentId
+      - name: paymentMethod
+        type: string
+        optional: true
+      - name: returnUrl
+        type: string
+        optional: true
+      - name: errorOnRequiresAction
+        type: boolean
+        optional: true
+      - name: offSession
+        type: boolean
+        optional: true
+      - name: idempotencyKey
+        type: string
+        optional: true
+        default: "{{uuid}}"
+    outputs: *paymentIntentOutputs
+
+  capturePaymentIntent:
+    description: >-
+      Capture an authorized PaymentIntent (POST /v1/payment_intents/{intent}/capture, 200). Only one
+      that is requires_capture can be captured. Without amount_to_capture it captures in full; a
+      smaller amount captures that much and releases the rest, and the PaymentIntent ends succeeded
+      either way.
+    adapter: capturePaymentIntent
+    tags: [payments]
+    oas:
+      operationId: PostPaymentIntentsIntentCapture
+    inputs:
+      - name: paymentIntentId
+        type: string
+        default:
+          from: createPaymentIntent.paymentIntentId
+      - name: amountToCapture
+        type: integer
+        optional: true
+      - name: idempotencyKey
+        type: string
+        optional: true
+        default: "{{uuid}}"
+    outputs: *paymentIntentOutputs
+
+  cancelPaymentIntent:
+    description: >-
+      Cancel a PaymentIntent (POST /v1/payment_intents/{intent}/cancel, 200) while it is
+      requires_payment_method, requires_confirmation, requires_action, or requires_capture; an
+      uncaptured authorization is released. The cleanup for an open PaymentIntent.
+    adapter: cancelPaymentIntent
+    tags: [payments, cleanup]
+    oas:
+      operationId: PostPaymentIntentsIntentCancel
+    inputs:
+      - name: paymentIntentId
+        type: string
+        default:
+          from: createPaymentIntent.paymentIntentId
+      - name: cancellationReason
+        type: string
+        optional: true
+        description: abandoned, duplicate, fraudulent, or requested_by_customer
+    outputs: *paymentIntentOutputs
+
+  incrementAuthorization:
+    description: >-
+      Raise the amount of an uncaptured card authorization (POST
+      /v1/payment_intents/{intent}/increment_authorization, 200). The PaymentIntent must have asked
+      for incremental authorization when it was confirmed, and the amount is the new total.
+    adapter: incrementAuthorization
+    tags: [payments]
+    oas:
+      operationId: PostPaymentIntentsIntentIncrementAuthorization
+    inputs:
+      - name: paymentIntentId
+        type: string
+        default:
+          from: createPaymentIntent.paymentIntentId
+      - name: amount
+        type: integer
+        description: The new, higher total to authorize
+      - name: idempotencyKey
+        type: string
+        optional: true
+        default: "{{uuid}}"
+    outputs: *paymentIntentOutputs
+
+  listPaymentIntents:
+    description: >-
+      Page through PaymentIntents (GET /v1/payment_intents, 200), newest first, narrowed to one
+      customer or to those created at or after a Unix time. Each page counts the PaymentIntents this
+      package created and those of them still open, and lists the open ones so a guard that fails
+      can name them.
+    adapter: listPaymentIntents
+    tags: [payments, pagination]
+    oas:
+      operationId: GetPaymentIntents
+    inputs:
+      - name: limit
+        type: integer
+        default: 10
+        constraints:
+          min: 1
+          max: 100
+      - name: startingAfter
+        type: string
+        optional: true
+      - name: customerId
+        type: string
+        optional: true
+      - name: createdGte
+        type: integer
+        optional: true
+    outputs:
+      - name: paymentIntents
+        type: paymentIntent[]
+        elementFields:
+          - name: id
+            type: string
+          - name: status
+            type: string
+          - name: amount
+            type: integer
+      - name: count
+        type: integer
+        display: PaymentIntents
+      - name: hasMore
+        type: boolean
+      - name: lastId
+        type: string
+      - name: ourCount
+        type: integer
+        display: Ours
+      - name: ourOpenCount
+        type: integer
+        display: Ours still open
+        description: The package's PaymentIntents in a requires_ state, which cleanup should have canceled
+      - name: ourOpen
+        type: openPaymentIntent[]
+        optional: true
+        elementFields:
+          - name: id
+            type: string
+          - name: status
+            type: string
+          - name: created
+            type: integer
+      - name: liveCount
+        type: integer
+
+  # --- Refunds and charges ---------------------------------------------------------------------
+
+  createRefund:
+    description: >-
+      Refund a payment (POST /v1/refunds, 200), in full or in part, by its PaymentIntent or charge.
+      Card refunds in test mode succeed at once. Refunding more than remains is 400
+      invalid_request_error on param amount. Refunds can't be deleted.
+    adapter: createRefund
+    tags: [refunds]
+    oas:
+      operationId: PostRefunds
+    inputs:
+      - name: paymentIntentId
+        type: string
+        optional: true
+        default:
+          from: createPaymentIntent.paymentIntentId
+      - name: chargeId
+        type: string
+        optional: true
+      - name: amount
+        type: integer
+        optional: true
+        description: The amount to refund; the whole remaining amount when left out
+      - name: reason
+        type: string
+        optional: true
+        description: duplicate, fraudulent, or requested_by_customer
+      - name: idempotencyKey
+        type: string
+        optional: true
+        default: "{{uuid}}"
+    outputs: &refundOutputs
+      - name: refundId
+        type: string
+        display: Refund
+      - name: status
+        type: string
+        display: Status
+      - name: amount
+        type: integer
+      - name: currency
+        type: string
+      - name: paymentIntentId
+        type: string
+        description: '"" for a refund without one'
+      - name: chargeId
+        type: string
+      - name: reason
+        type: string
+        description: '"" for none'
+      - name: failureReason
+        type: string
+        description: Why a failed refund failed; "" otherwise
+      - name: pendingReason
+        type: string
+        description: Why a pending refund is pending; "" otherwise
+      - name: source
+        type: string
+        description: metadata.source
+
+  getRefund:
+    description: Read a refund by its re_ ID (GET /v1/refunds/{refund}, 200), to follow one that is pending.
+    adapter: getRefund
+    tags: [refunds]
+    oas:
+      operationId: GetRefundsRefund
+    inputs:
+      - name: refundId
+        type: string
+        default:
+          from: createRefund.refundId
+    outputs: *refundOutputs
+
+  updateRefund:
+    description: Update a refund's metadata note (POST /v1/refunds/{refund}, 200); nothing else of a refund changes.
+    adapter: updateRefund
+    tags: [refunds]
+    oas:
+      operationId: PostRefundsRefund
+    inputs:
+      - name: refundId
+        type: string
+        default:
+          from: createRefund.refundId
+      - name: note
+        type: string
+        description: Stored as metadata[note]
+    outputs:
+      - name: refundId
+        type: string
+        display: Refund
+      - name: note
+        type: string
+
+  listRefunds:
+    description: >-
+      Page through refunds (GET /v1/refunds, 200), newest first, narrowed to one PaymentIntent or one
+      charge.
+    adapter: listRefunds
+    tags: [refunds, pagination]
+    oas:
+      operationId: GetRefunds
+    inputs:
+      - name: limit
+        type: integer
+        default: 10
+        constraints:
+          min: 1
+          max: 100
+      - name: startingAfter
+        type: string
+        optional: true
+      - name: paymentIntentId
+        type: string
+        optional: true
+      - name: chargeId
+        type: string
+        optional: true
+    outputs:
+      - name: refunds
+        type: refund[]
+        elementFields:
+          - name: id
+            type: string
+          - name: status
+            type: string
+          - name: amount
+            type: integer
+      - name: count
+        type: integer
+        display: Refunds
+      - name: hasMore
+        type: boolean
+      - name: lastId
+        type: string
+      - name: totalAmount
+        type: integer
+        description: The refunds' amounts added up
+
+  getCharge:
+    description: >-
+      Read a charge by its ch_ or py_ ID (GET /v1/charges/{charge}, 200): its amounts captured and
+      refunded, its card's brand, country, funding, and last four digits, and its outcome and risk
+      level.
+    adapter: getCharge
+    tags: [charges]
+    oas:
+      operationId: GetChargesCharge
+    inputs:
+      - name: chargeId
+        type: string
+        default:
+          from: getPaymentIntent.latestChargeId
+    outputs:
+      - name: chargeId
+        type: string
+        display: Charge
+      - name: status
+        type: string
+        display: Status
+      - name: amount
+        type: integer
+      - name: amountCaptured
+        type: integer
+      - name: amountRefunded
+        type: integer
+      - name: currency
+        type: string
+      - name: captured
+        type: boolean
+      - name: refunded
+        type: boolean
+      - name: paid
+        type: boolean
+      - name: disputed
+        type: boolean
+      - name: livemode
+        type: boolean
+      - name: paymentIntentId
+        type: string
+      - name: balanceTransactionId
+        type: string
+        description: The txn_ ID; "" before the charge has one
+      - name: cardBrand
+        type: string
+      - name: cardCountry
+        type: string
+      - name: cardFunding
+        type: string
+      - name: cardLast4
+        type: string
+      - name: outcomeType
+        type: string
+      - name: riskLevel
+        type: string
+      - name: networkStatus
+        type: string
+        description: approved_by_network, declined_by_network, not_sent_to_network, or reversed_after_approval
+      - name: failureCode
+        type: string
+        description: '"" for a charge that didn''t fail'
+
+  listCharges:
+    description: >-
+      Page through charges (GET /v1/charges, 200), newest first, narrowed to one PaymentIntent or one
+      customer.
+    adapter: listCharges
+    tags: [charges, pagination]
+    oas:
+      operationId: GetCharges
+    inputs:
+      - name: limit
+        type: integer
+        default: 10
+        constraints:
+          min: 1
+          max: 100
+      - name: startingAfter
+        type: string
+        optional: true
+      - name: paymentIntentId
+        type: string
+        optional: true
+      - name: customerId
+        type: string
+        optional: true
+    outputs:
+      - name: charges
+        type: charge[]
+        elementFields:
+          - name: id
+            type: string
+          - name: status
+            type: string
+          - name: amount
+            type: integer
+          - name: refunded
+            type: boolean
+      - name: count
+        type: integer
+        display: Charges
+      - name: hasMore
+        type: boolean
+      - name: lastId
+        type: string
+
+  updateCharge:
+    description: Update a charge's description and metadata note (POST /v1/charges/{charge}, 200).
+    adapter: updateCharge
+    tags: [charges]
+    oas:
+      operationId: PostChargesCharge
+    inputs:
+      - name: chargeId
+        type: string
+        default:
+          from: getPaymentIntent.latestChargeId
+      - name: description
+        type: string
+        optional: true
+      - name: note
+        type: string
+        optional: true
+        description: Stored as metadata[note]
+      - name: idempotencyKey
+        type: string
+        optional: true
+        default: "{{uuid}}"
+    outputs:
+      - name: chargeId
+        type: string
+        display: Charge
+      - name: description
+        type: string
+      - name: note
+        type: string
+
+workflows:
+  - name: Card Payment
+    description: A new customer pays by card with a PaymentIntent, captured the way the capture slot chooses, and the payment is read back with its charge
+    template: workflows/card-payment.yaml
+    slots:
+      - name: capture
+        options: [Automatic Capture, Manual Capture, Partial Capture, Cancel Authorization]
+        default: Automatic Capture
+    selectionHint: Paying by card, with layers for the card brand, the currency, and the amount
+
+  - name: Automatic Capture
+    kind: slot
+    description: Create and confirm the PaymentIntent with the card, captured at once
+    template: workflows/slots/automatic-capture.yaml
+
+  - name: Manual Capture
+    kind: slot
+    description: Authorize the card, then capture the whole authorization
+    template: workflows/slots/manual-capture.yaml
+
+  - name: Partial Capture
+    kind: slot
+    description: Authorize the card, then capture all but 500 and release the rest
+    template: workflows/slots/partial-capture.yaml
+
+  - name: Cancel Authorization
+    kind: slot
+    description: Authorize the card, then cancel and release the whole authorization
+    template: workflows/slots/cancel-authorization.yaml
+
+  - name: Declined Card
+    description: A PaymentIntent created without a card is declined with the card the decline slot chooses, stays open for another card, and is paid with a working one
+    template: workflows/declined-card.yaml
+    slots:
+      - name: decline
+        options: [Generic Decline, Insufficient Funds, Lost Card, Stolen Card, Expired Card, Incorrect CVC, Processing Error, Fraudulent]
+        default: Generic Decline
+    selectionHint: A card the issuer declines, with the exact error Stripe returns, then a card that works
+
+  - name: Generic Decline
+    kind: slot
+    description: Confirm with a card declined without a reason
+    template: workflows/slots/decline-generic.yaml
+
+  - name: Insufficient Funds
+    kind: slot
+    description: Confirm with a card declined for insufficient funds
+    template: workflows/slots/decline-insufficient-funds.yaml
+
+  - name: Lost Card
+    kind: slot
+    description: Confirm with a card declined as lost
+    template: workflows/slots/decline-lost-card.yaml
+
+  - name: Stolen Card
+    kind: slot
+    description: Confirm with a card declined as stolen
+    template: workflows/slots/decline-stolen-card.yaml
+
+  - name: Expired Card
+    kind: slot
+    description: Confirm with an expired card
+    template: workflows/slots/decline-expired-card.yaml
+
+  - name: Incorrect CVC
+    kind: slot
+    description: Confirm with a card whose CVC is wrong
+    template: workflows/slots/decline-incorrect-cvc.yaml
+
+  - name: Processing Error
+    kind: slot
+    description: Confirm with a card whose charge meets a processing error
+    template: workflows/slots/decline-processing-error.yaml
+
+  - name: Fraudulent
+    kind: slot
+    description: Confirm with a card declined as suspected fraud
+    template: workflows/slots/decline-fraudulent.yaml

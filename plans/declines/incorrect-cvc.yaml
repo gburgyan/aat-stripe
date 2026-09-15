@@ -1,0 +1,10 @@
+# A wrong CVC: 402 card_error incorrect_cvc, then paid with another card.
+kind: recipe
+metadata:
+  prompt: Pay with a wrong CVC
+  graphVersion: "1.0.0"
+selection:
+  workflow: Declined Card
+  description: Refused for the CVC, then paid
+  choices:
+    decline: Incorrect CVC

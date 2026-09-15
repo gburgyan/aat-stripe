@@ -1,0 +1,10 @@
+# An authorization captured in part: capturing all but 500 receives that much, releases the rest, and leaves the PaymentIntent succeeded with nothing left to capture.
+kind: recipe
+metadata:
+  prompt: Authorize a card, then capture part of it
+  graphVersion: "1.0.0"
+selection:
+  workflow: Card Payment
+  description: Authorized, then captured all but 500
+  choices:
+    capture: Partial Capture

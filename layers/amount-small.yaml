@@ -1,0 +1,5 @@
+name: amount-small
+description: A small payment of 1000 in the currency's smallest unit
+selectionHint: A small amount
+inputs:
+  createPaymentIntent.amount: 1000

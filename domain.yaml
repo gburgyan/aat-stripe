@@ -63,3 +63,50 @@ concepts:
       A change made through the API leaves an event naming the object it changed and the request
       behind it, with that request's Idempotency-Key. Proven by plans/account/events.yaml.
     applies_to: [eventId, eventType, objectId, requestId, idempotencyKey]
+
+  paymentIntents:
+    description: >-
+      A PaymentIntent tracks one payment. Confirmed with a card, it ends succeeded, or with capture_method manual it waits
+      in requires_capture with its whole amount capturable. A capture of less than the amount receives that much and
+      releases the rest, and the PaymentIntent ends succeeded with nothing left to capture. It can be canceled only
+      while it is requires_payment_method, requires_confirmation, requires_action, or requires_capture; a cancel then
+      ends canceled with the reason given. Proven by plans/payments/automatic-capture.yaml,
+      plans/payments/manual-capture.yaml, plans/payments/partial-capture.yaml, and plans/payments/cancel-authorization.yaml.
+    applies_to: [paymentIntentId, status, amountCapturable, amountReceived, captureMethod, amountToCapture, cancellationReason]
+    constraint: read a PaymentIntent's status before canceling it, and cancel only one still open
+
+  declines:
+    description: >-
+      A declined card is 402 card_error with a code, a decline_code, and an advice_code, and the error names the
+      PaymentIntent, which stays requires_payment_method with the error recorded and can be confirmed again with
+      another card. An expired card and a wrong CVC also name the param at fault (exp_month, cvc). A create that
+      confirms and is declined leaves the PaymentIntent's ID only in the error, so create first and confirm after.
+      Proven by the plans in plans/declines/.
+    applies_to: [error, lastErrorCode, lastDeclineCode, lastErrorType]
+    constraint: branch on error.code and error.decline_code, and retry only when advice_code allows it
+
+  authentication:
+    description: >-
+      A card that requires 3D Secure stops the PaymentIntent at requires_action, with a redirect_to_url next action
+      when a return_url is given, and it can't be captured until the customer authenticates (400
+      payment_intent_unexpected_state). With error_on_requires_action, the confirmation is 402 authentication_required
+      (decline code authentication_not_handled) and leaves the PaymentIntent open in requires_payment_method. Proven by
+      plans/payments/three-d-secure.yaml.
+    applies_to: [nextActionType, returnUrl, errorOnRequiresAction]
+    constraint: a refused confirmation still leaves a PaymentIntent to cancel
+
+  refunds:
+    description: >-
+      Card refunds in test mode succeed at once, in full or in part, and partial refunds add up until the charge is
+      refunded. More than remains is 400 on param amount with no code; a second full refund is 400
+      charge_already_refunded; an authorization that wasn't captured can't be refunded (400, with no code or param) and
+      is canceled instead. Refunds can't be deleted. Proven by plans/refunds/full-refund.yaml,
+      plans/refunds/partial-refund.yaml, and plans/refunds/refund-limits.yaml.
+    applies_to: [refundId, amount, reason, amountRefunded, refunded]
+
+  incrementalAuthorization:
+    description: >-
+      Incremental authorization depends on the account. On this one, asking for it is 400
+      payment_intent_invalid_parameter ("not eligible for the requested card features"), and incrementing an
+      authorization that didn't ask for it is 400 with no code. Proven by plans/payments/increment-authorization.yaml.
+    applies_to: [requestIncrementalAuthorization]

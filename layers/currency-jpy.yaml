@@ -1,0 +1,5 @@
+name: currency-jpy
+description: Charge in Japanese yen, a zero-decimal currency, in whole yen
+selectionHint: Japanese yen
+inputs:
+  createPaymentIntent.currency: jpy

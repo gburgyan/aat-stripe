@@ -1,0 +1,13 @@
+execution:
+  steps:
+    - id: pay
+      node: createPaymentIntent
+      description: Create and confirm the PaymentIntent, captured at once
+      values:
+        confirm: true
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: >-
+              livemode == false && status == "succeeded" && amountReceived == amount && amountCapturable == 0 &&
+              cardBrand == expectedBrand

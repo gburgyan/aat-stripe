@@ -1,0 +1,10 @@
+# A decline for a stolen card: 402 card_declined stolen_card, then paid with another card.
+kind: recipe
+metadata:
+  prompt: Pay with a stolen card
+  graphVersion: "1.0.0"
+selection:
+  workflow: Declined Card
+  description: Declined as stolen, then paid
+  choices:
+    decline: Stolen Card

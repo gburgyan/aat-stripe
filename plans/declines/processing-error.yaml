@@ -1,0 +1,10 @@
+# A processing error: 402 card_error processing_error, then paid with another card.
+kind: recipe
+metadata:
+  prompt: Pay with a card that meets a processing error
+  graphVersion: "1.0.0"
+selection:
+  workflow: Declined Card
+  description: A processing error, then paid
+  choices:
+    decline: Processing Error

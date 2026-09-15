@@ -1,0 +1,40 @@
+adapter: createRefund
+protocol: http
+
+request:
+  method: POST
+  path: /v1/refunds
+  headers:
+    Idempotency-Key: "{{idempotencyKey}}"
+  form:
+    payment_intent: "{{paymentIntentId}}"
+    charge: "{{chargeId}}"
+    amount: "{{amount}}"
+    reason: "{{reason}}"
+    metadata:
+      source: aat-stripe
+
+response:
+  extract:
+    refundId: id
+    status: status
+    amount: amount
+    currency: currency
+    paymentIntentId:
+      path: payment_intent
+      default: ""
+    chargeId:
+      path: charge
+      default: ""
+    reason:
+      path: reason
+      default: ""
+    failureReason:
+      path: failure_reason
+      default: ""
+    pendingReason:
+      path: pending_reason
+      default: ""
+    source:
+      path: metadata.source
+      default: ""

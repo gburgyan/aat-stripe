@@ -1,0 +1,5 @@
+name: currency-eur
+description: Charge in euros, in cents
+selectionHint: Euros
+inputs:
+  createPaymentIntent.currency: eur

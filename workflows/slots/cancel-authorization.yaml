@@ -1,0 +1,23 @@
+execution:
+  steps:
+    - id: authorize
+      node: createPaymentIntent
+      description: Authorize the card without capturing
+      values:
+        confirm: true
+        captureMethod: manual
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: livemode == false && status == "requires_capture" && amountCapturable == amount && amountReceived == 0
+
+    - id: release
+      node: cancelPaymentIntent
+      description: Cancel the authorization, which releases it whole
+      values:
+        paymentIntentId: {from: authorize.paymentIntentId}
+        cancellationReason: requested_by_customer
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: status == "canceled" && cancellationReason == "requested_by_customer" && amountReceived == 0 && amountCapturable == 0

@@ -1,0 +1,22 @@
+adapter: updateCharge
+protocol: http
+
+request:
+  method: POST
+  path: /v1/charges/{{chargeId}}
+  headers:
+    Idempotency-Key: "{{idempotencyKey}}"
+  form:
+    description: "{{description}}"
+    metadata:
+      note: "{{note}}"
+
+response:
+  extract:
+    chargeId: id
+    description:
+      path: description
+      default: ""
+    note:
+      path: metadata.note
+      default: ""

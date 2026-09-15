@@ -1,0 +1,100 @@
+# A card that requires 3D Secure. Confirmed, the PaymentIntent stops at requires_action with a redirect for the
+# customer to authenticate, and capturing it before then is 400 payment_intent_unexpected_state. Asked to fail rather
+# than stop, a create is 402 authentication_required and still leaves a PaymentIntent open: the plan finds it under
+# the customer, told apart from the first by that one's ID, and cancels it. Cleanup cancels the first.
+intent:
+  goal: refusedOpen
+  description: 3D Secure stops a payment for authentication, and error_on_requires_action refuses it instead
+
+execution:
+  steps:
+    - id: balance
+      node: getBalance
+      description: The balance, in test mode, before anything is created
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: livemode == false
+
+    - id: customer
+      node: createCustomer
+      dependsOn: [balance]
+      description: The paying customer
+
+    - id: create
+      node: createPaymentIntent
+      dependsOn: [customer]
+      description: Confirm with a card that requires 3D Secure
+      values:
+        confirm: true
+        captureMethod: manual
+        paymentMethod: pm_card_threeDSecure2Required
+        expectedBrand: {}
+        returnUrl: https://example.com/aat-stripe/return
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: livemode == false && status == "requires_action" && nextActionType == "redirect_to_url" && amountCapturable == 0
+
+    - id: earlyCapture
+      node: capturePaymentIntent
+      description: Capture before the customer authenticates
+      values:
+        paymentIntentId: {from: create.paymentIntentId}
+      expectFailure:
+        status: [400]
+        description: payment_intent_unexpected_state, since it waits for authentication
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: error.type == "invalid_request_error" && error.code == "payment_intent_unexpected_state"
+          - type: fieldAbsent
+            path: error.param
+          - type: fieldAbsent
+            path: error.decline_code
+
+    - id: refused
+      node: createPaymentIntent
+      dependsOn: [earlyCapture]
+      description: The same card, asked to fail rather than wait for authentication
+      values:
+        confirm: true
+        paymentMethod: pm_card_threeDSecure2Required
+        expectedBrand: {}
+        errorOnRequiresAction: true
+      expectFailure:
+        status: [402]
+        description: authentication_required, authentication_not_handled
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: error.type == "card_error" && error.code == "authentication_required" && error.decline_code == "authentication_not_handled"
+          - type: fieldAbsent
+            path: error.param
+
+    - id: openAfterRefusal
+      node: listPaymentIntents
+      dependsOn: [refused]
+      description: The customer's PaymentIntents after the refusal, both open
+      values:
+        customerId: {from: customer.customerId}
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: count == 2 && ourOpenCount == 2
+
+    - id: refusedOpen
+      node: cancelPaymentIntent
+      isGoal: true
+      description: Cancel the PaymentIntent the refused create left open
+      values:
+        paymentIntentId:
+          from: openAfterRefusal.paymentIntents
+          select:
+            strategy: first
+            field: id
+            filter: id != "{{create.paymentIntentId}}"
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: status == "canceled" && paymentIntentId != "{{create.paymentIntentId}}"

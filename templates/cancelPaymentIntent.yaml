@@ -1,0 +1,50 @@
+adapter: cancelPaymentIntent
+protocol: http
+
+request:
+  method: POST
+  path: /v1/payment_intents/{{paymentIntentId}}/cancel
+  form:
+    cancellation_reason: "{{cancellationReason}}"
+    expand[]: latest_charge
+
+response:
+  extract:
+    paymentIntentId: id
+    status: status
+    amount: amount
+    currency: currency
+    amountCapturable: amount_capturable
+    amountReceived: amount_received
+    captureMethod: capture_method
+    livemode: livemode
+    customerId:
+      path: customer
+      default: ""
+    paymentMethodId:
+      path: payment_method
+      default: ""
+    latestChargeId:
+      path: latest_charge.id
+      default: ""
+    cardBrand:
+      path: latest_charge.payment_method_details.card.brand
+      default: ""
+    nextActionType:
+      path: next_action.type
+      default: ""
+    lastErrorCode:
+      path: last_payment_error.code
+      default: ""
+    lastDeclineCode:
+      path: last_payment_error.decline_code
+      default: ""
+    cancellationReason:
+      path: cancellation_reason
+      default: ""
+    expectedBrand:
+      path: metadata.expected_brand
+      default: ""
+    source:
+      path: metadata.source
+      default: ""
