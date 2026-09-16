@@ -1,0 +1,12 @@
+# One card payment, for whatever card, currency, and amount the layers choose. Crossed with layer groups this plan is
+# the matrix's row, and every cell proves its layers took effect: the charge comes back with the brand the layer named,
+# in the currency it named, for the amount it named.
+kind: recipe
+metadata:
+  prompt: Pay by card, with the layers choosing the card
+  graphVersion: "1.0.0"
+selection:
+  workflow: Card Payment
+  description: The card the layers choose pays, captured at once
+  choices:
+    capture: Automatic Capture
