@@ -62,15 +62,15 @@ had succeeded, and deleted the customer.
 
 ### What you need
 
-- **`aat` built from source.** The package uses features that aren't in a release yet, all of them added while it was
-  written (see [How this was built](#how-this-was-built)), so build from `main` once they have landed. Building needs
-  Go 1.25.7 or later, and Node.js for the web UI:
+- **`aat` v0.2.0 or later**, which carries the features this package needed (see
+  [How this was built](#how-this-was-built)). Install it with Homebrew, a release archive, Docker, or `go install` —
+  see [Install](https://gburgyan.github.io/aat/install/):
 
   ```bash
-  git clone https://github.com/gburgyan/aat.git
-  cd aat && make build
-  export PATH="$PWD:$PATH"
+  brew install gburgyan/tap/aat
   ```
+
+  A `go install` build has every CLI feature but no web UI, so `aat web view latest` needs a release build or Homebrew.
 
 - **A Stripe account in test mode,** based in the US, with a test secret key (`sk_test_…`):
 
