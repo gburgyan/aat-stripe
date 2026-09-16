@@ -1,0 +1,24 @@
+adapter: searchCharges
+protocol: http
+
+request:
+  method: GET
+  path: /v1/charges/search?query={{query}}&limit={{limit}}{{?page}}&page={{page}}{{/page}}
+
+response:
+  extract:
+    charges:
+      path: data
+      fields:
+        id: id
+        status: status
+        amount: amount
+        refunded: refunded
+    count: 'data.#'
+    hasMore: has_more
+    nextPage:
+      path: next_page
+      default: ""
+    firstId:
+      path: data.0.id
+      default: ""

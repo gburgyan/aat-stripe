@@ -1,0 +1,174 @@
+# A ConfirmationToken carries what Stripe.js collected in the browser: the payment method, what it may be saved for, and
+# where the customer returns. The test helper makes one without a browser. It lasts 12 hours, confirms one PaymentIntent,
+# and is refused after that. A token that asks to save the card saves it to the customer, and one whose setup_future_usage
+# doesn't match the PaymentIntent's is refused.
+intent:
+  goal: missing
+  description: A ConfirmationToken confirms one payment, saves a card, and is refused a second time
+
+execution:
+  steps:
+    - id: customer
+      node: createCustomer
+      description: A customer tagged metadata[source]=aat-stripe
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: livemode == false && source == "aat-stripe"
+
+    - id: token
+      node: createConfirmationToken
+      dependsOn: [customer]
+      description: A ConfirmationToken for a test Visa
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: >-
+              livemode == false && previewType == "card" && previewBrand == "visa" && previewLast4 == "4242" &&
+              paymentIntentId == "" && setupIntentId == ""
+
+    - id: read
+      node: getConfirmationToken
+      description: The token read back, which lasts 12 hours
+      values:
+        confirmationTokenId: {from: token.confirmationTokenId}
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: >-
+              confirmationTokenId == "{{token.confirmationTokenId}}" && previewType == "card" &&
+              created == "{{token.created}}" && expiresAt == "{{token.created + 12 hours}}" && paymentIntentId == ""
+
+    - id: pay
+      node: createPaymentIntent
+      dependsOn: [read]
+      description: Confirm a payment with the token instead of a payment method
+      values:
+        customerId: {from: customer.customerId}
+        paymentMethod: {}
+        confirmationToken: {from: token.confirmationTokenId}
+        confirm: true
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: >-
+              status == "succeeded" && amountReceived == amount && cardBrand == expectedBrand &&
+              paymentMethodId != "pm_card_visa"
+
+    - id: used
+      node: getConfirmationToken
+      description: The token after it confirmed the payment
+      values:
+        confirmationTokenId: {from: token.confirmationTokenId}
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: paymentIntentId == "{{pay.paymentIntentId}}"
+
+    - id: reuse
+      node: createPaymentIntent
+      dependsOn: [used]
+      description: Confirm another payment with the same token
+      values:
+        customerId: {from: customer.customerId}
+        paymentMethod: {}
+        confirmationToken: {from: token.confirmationTokenId}
+        confirm: true
+      expectFailure:
+        status: [400]
+        description: a ConfirmationToken confirms one PaymentIntent
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: error.type == "invalid_request_error" && error.code == "payment_intent_confirmation_token_invalid"
+          - type: fieldAbsent
+            path: error.param
+          - type: fieldAbsent
+            path: error.decline_code
+
+    - id: saveToken
+      node: createConfirmationToken
+      dependsOn: [reuse]
+      description: A token that asks to save the card for later
+      values:
+        paymentMethod: pm_card_mastercard
+        setupFutureUsage: off_session
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: previewType == "card" && previewBrand == "mastercard" && setupFutureUsage == "off_session"
+
+    - id: savePay
+      node: createPaymentIntent
+      description: Pay with that token, saving the card
+      values:
+        customerId: {from: customer.customerId}
+        paymentMethod: {}
+        expectedBrand: mastercard
+        confirmationToken: {from: saveToken.confirmationTokenId}
+        setupFutureUsage: off_session
+        confirm: true
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: status == "succeeded" && cardBrand == expectedBrand && paymentMethodId != ""
+
+    - id: savedCard
+      node: getCustomerPaymentMethod
+      description: The card the payment saved, under the customer
+      values:
+        customerId: {from: customer.customerId}
+        paymentMethodId: {from: savePay.paymentMethodId}
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: customerId == "{{customer.customerId}}" && cardBrand == "mastercard"
+
+    - id: mismatchToken
+      node: createConfirmationToken
+      dependsOn: [savedCard]
+      description: Another token that asks to save the card off session
+      values:
+        setupFutureUsage: off_session
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: setupFutureUsage == "off_session"
+
+    - id: mismatch
+      node: createPaymentIntent
+      description: Pay with it, asking to save the card on session instead
+      values:
+        customerId: {from: customer.customerId}
+        paymentMethod: {}
+        confirmationToken: {from: mismatchToken.confirmationTokenId}
+        setupFutureUsage: on_session
+        confirm: true
+      expectFailure:
+        status: [400]
+        description: the PaymentIntent must ask for what the token asked for
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: error.type == "invalid_request_error" && error.param == "setup_future_usage"
+          - type: fieldAbsent
+            path: error.code
+          - type: fieldAbsent
+            path: error.decline_code
+
+    - id: missing
+      node: getConfirmationToken
+      dependsOn: [mismatch]
+      isGoal: true
+      description: Read a ConfirmationToken that doesn't exist
+      values:
+        confirmationTokenId: ctoken_1AAAAAAAAAAAAAAAAAAAAAAA
+      expectFailure:
+        status: [404]
+        description: resource_missing on param confirmation_token
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: error.type == "invalid_request_error" && error.code == "resource_missing" && error.param == "confirmation_token"
+          - type: fieldAbsent
+            path: error.decline_code

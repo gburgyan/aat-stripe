@@ -1,0 +1,10 @@
+# A bank transfer applied by hand: the payment waits until apply_customer_balance puts the balance toward it, here in two parts.
+kind: recipe
+metadata:
+  prompt: Pay by bank transfer, applying the balance by hand
+  graphVersion: "1.0.0"
+selection:
+  workflow: Bank Transfer
+  description: Applied by hand, in two parts
+  choices:
+    reconciliation: Manual Reconciliation

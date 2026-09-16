@@ -1,0 +1,138 @@
+# A customer's cash balance: money arriving by bank transfer, and what that records. An amount below 1 is
+# refused, as is a reconciliation mode that isn't one of the three. The balance is spent back to zero at the end, since a
+# customer with money left can't be deleted.
+intent:
+  goal: balanceEnd
+  description: A cash balance is funded by bank transfer, recorded, and spent back to zero
+
+execution:
+  steps:
+    - id: customer
+      node: createCustomer
+      description: A customer tagged metadata[source]=aat-stripe
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: livemode == false && source == "aat-stripe"
+
+    - id: balanceBefore
+      node: getCashBalance
+      dependsOn: [customer]
+      description: The cash balance of a new customer
+      values:
+        customerId: {from: customer.customerId}
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: >-
+              livemode == false && availableUsd == 0 && reconciliationMode == "automatic" &&
+              usingMerchantDefault == true
+
+    - id: fund
+      node: fundCashBalance
+      dependsOn: [balanceBefore]
+      description: The customer's transfer arrives
+      values:
+        customerId: {from: customer.customerId}
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: >-
+              livemode == false && type == "funded" && netAmount == 5000 && endingBalance == 5000 &&
+              currency == "usd" && bankTransferType == "us_bank_transfer" && reference == "aat-stripe"
+
+    - id: balanceAfter
+      node: getCashBalance
+      description: The balance after the transfer
+      values:
+        customerId: {from: customer.customerId}
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: availableUsd == "{{fund.endingBalance}}"
+
+    - id: transactions
+      node: listCashBalanceTransactions
+      dependsOn: [balanceAfter]
+      description: What the transfer recorded
+      values:
+        customerId: {from: customer.customerId}
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: count == 1 && latestType == "funded" && latestEndingBalance == 5000 && lastId == "{{fund.cashBalanceTransactionId}}"
+
+    - id: transaction
+      node: getCashBalanceTransaction
+      description: That transaction on its own
+      values:
+        customerId: {from: customer.customerId}
+        cashBalanceTransactionId: {from: fund.cashBalanceTransactionId}
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: >-
+              type == "funded" && netAmount == 5000 && endingBalance == 5000 && reference == "aat-stripe" &&
+              appliedPaymentIntentId == ""
+
+    - id: fundZero
+      node: fundCashBalance
+      dependsOn: [transaction]
+      description: A transfer of nothing
+      values:
+        customerId: {from: customer.customerId}
+        amount: 0
+      expectFailure:
+        status: [400]
+        description: parameter_invalid_integer on param amount
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: >-
+              error.type == "invalid_request_error" && error.code == "parameter_invalid_integer" &&
+              error.param == "amount"
+          - type: fieldAbsent
+            path: error.decline_code
+
+    - id: badMode
+      node: updateCashBalance
+      dependsOn: [fundZero]
+      description: A reconciliation mode that isn't one of the three
+      values:
+        customerId: {from: customer.customerId}
+        reconciliationMode: sometimes
+      expectFailure:
+        status: [400]
+        description: refused on param settings[reconciliation_mode], with no code
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: error.type == "invalid_request_error" && error.param == "settings[reconciliation_mode]"
+          - type: fieldAbsent
+            path: error.code
+          - type: fieldAbsent
+            path: error.decline_code
+
+    - id: spend
+      node: createBankTransferPaymentIntent
+      dependsOn: [badMode]
+      description: Spend the balance on a payment, which takes it as it is there
+      values:
+        customerId: {from: customer.customerId}
+        amount: 5000
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: status == "succeeded" && amountReceived == 5000 && nextActionType == ""
+
+    - id: balanceEnd
+      node: getCashBalance
+      dependsOn: [spend]
+      isGoal: true
+      description: The balance, back to nothing, so the customer can be deleted
+      values:
+        customerId: {from: customer.customerId}
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: availableUsd == 0

@@ -1,0 +1,116 @@
+# A bank account saved for later debits. A SetupIntent verified with microdeposits succeeds with a multi-use mandate and
+# attaches the bank account to the customer, and a later debit off session reuses that mandate instead of collecting
+# acceptance again. The mandate stays active afterward.
+intent:
+  goal: mandateAfter
+  description: A verified SetupIntent saves a bank account with a multi-use mandate, which a later debit reuses
+
+execution:
+  steps:
+    - id: customer
+      node: createCustomer
+      description: A customer tagged metadata[source]=aat-stripe
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: livemode == false && source == "aat-stripe"
+
+    - id: bankAccount
+      node: createAchPaymentMethod
+      dependsOn: [customer]
+      description: The bank account to save
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: livemode == false && type == "us_bank_account" && customerId == ""
+
+    - id: setup
+      node: createAchSetupIntent
+      description: Save it, which waits for microdeposit verification
+      values:
+        customerId: {from: customer.customerId}
+        paymentMethod: {from: bankAccount.paymentMethodId}
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: >-
+              livemode == false && status == "requires_action" && nextActionType == "verify_with_microdeposits" &&
+              microdepositType == "descriptor_code" && mandateId != "" && source == "aat-stripe"
+
+    - id: verify
+      node: verifySetupIntentMicrodeposits
+      description: Verify the microdeposits, which saves the bank account
+      values:
+        setupIntentId: {from: setup.setupIntentId}
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: status == "succeeded" && mandateId == "{{setup.mandateId}}" && paymentMethodId == "{{bankAccount.paymentMethodId}}"
+
+    - id: mandate
+      node: getMandate
+      description: The mandate the SetupIntent collected
+      values:
+        mandateId: {from: verify.mandateId}
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: >-
+              type == "multi_use" && status == "active" && paymentMethodType == "us_bank_account" &&
+              acceptanceType == "online" && acceptanceIp == "203.0.113.10" && acceptanceUserAgent == "aat-stripe" &&
+              paymentMethodId == "{{bankAccount.paymentMethodId}}"
+
+    - id: attached
+      node: getCustomerPaymentMethod
+      dependsOn: [mandate]
+      description: The bank account, now the customer's
+      values:
+        customerId: {from: customer.customerId}
+        paymentMethodId: {from: bankAccount.paymentMethodId}
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: paymentMethodId == "{{bankAccount.paymentMethodId}}" && customerId == "{{customer.customerId}}"
+
+    - id: debit
+      node: createAchPaymentIntent
+      dependsOn: [attached]
+      description: Debit the saved bank account off session, with no acceptance to collect
+      values:
+        customerId: {from: customer.customerId}
+        paymentMethod: {from: bankAccount.paymentMethodId}
+        offSession: true
+        acceptanceType: {}
+        acceptanceIp: {}
+        acceptanceUserAgent: {}
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: status == "processing" && nextActionType == "" && amountReceived == 0
+
+    - id: settle
+      node: getPaymentIntent
+      description: Read the debit until the bank has answered
+      values:
+        paymentIntentId: {from: debit.paymentIntentId}
+      repeat:
+        until: status != "processing"
+        interval: 3s
+        max: 40
+        timeout: 150s
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: status == "succeeded" && amountReceived == "{{debit.amount}}"
+
+    - id: mandateAfter
+      node: getMandate
+      dependsOn: [settle]
+      isGoal: true
+      description: The mandate after the debit, still good for the next one
+      values:
+        mandateId: {from: verify.mandateId}
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: type == "multi_use" && status == "active"

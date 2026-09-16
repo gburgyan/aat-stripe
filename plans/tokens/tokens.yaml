@@ -1,0 +1,238 @@
+# Stripe's single-use tokens: a bank account, a PII number, and a CVC collected again. Each is created once and read
+# back, the CVC token is spent on a payment and then refused a second time, and a token request that names no kind, two
+# kinds, or a raw card number is refused. The refused reuse leaves a PaymentIntent, which the plan cancels.
+intent:
+  goal: cancelLeftOpen
+  description: Bank account, PII, and CVC tokens are created, used once, and refused after that
+
+execution:
+  steps:
+    - id: customer
+      node: createCustomer
+      description: A customer tagged metadata[source]=aat-stripe
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: livemode == false && source == "aat-stripe"
+
+    - id: bankToken
+      node: createToken
+      dependsOn: [customer]
+      description: A token for a US bank account
+      values:
+        bankCountry: US
+        bankCurrency: usd
+        routingNumber: "110000000"
+        accountNumber: "000123456789"
+        accountHolderName: AAT Stripe
+        accountHolderType: individual
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: >-
+              livemode == false && type == "bank_account" && used == false && bankLast4 == "6789" &&
+              bankStatus == "new" && bankName == "STRIPE TEST BANK" && bankCountry == "US"
+
+    - id: readToken
+      node: getToken
+      description: The bank account token read back
+      values:
+        tokenId: {from: bankToken.tokenId}
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: tokenId == "{{bankToken.tokenId}}" && type == "bank_account" && used == false
+
+    - id: piiToken
+      node: createToken
+      dependsOn: [readToken]
+      description: A token for a PII number
+      values:
+        idNumber: "000000000"
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: type == "pii" && used == false
+
+    - id: cvcToken
+      node: createToken
+      dependsOn: [piiToken]
+      description: A token for a CVC collected again
+      values:
+        cvc: "123"
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: type == "cvc_update" && used == false
+
+    - id: card
+      node: attachPaymentMethod
+      description: A saved card to charge with the CVC token
+      values:
+        paymentMethodId: pm_card_visa
+        customerId: {from: customer.customerId}
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: customerId == "{{customer.customerId}}"
+
+    - id: pay
+      node: createPaymentIntent
+      dependsOn: [cvcToken, card]
+      description: Charge the saved card with the CVC token
+      values:
+        customerId: {from: customer.customerId}
+        paymentMethod: {from: card.paymentMethodId}
+        cvcToken: {from: cvcToken.tokenId}
+        confirm: true
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: status == "succeeded" && amountReceived == amount
+
+    - id: cvcUsed
+      node: getToken
+      description: The CVC token after the payment
+      values:
+        tokenId: {from: cvcToken.tokenId}
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: type == "cvc_update" && used == true
+
+    - id: reuse
+      node: createPaymentIntent
+      dependsOn: [cvcUsed]
+      description: Charge again with the same CVC token
+      values:
+        customerId: {from: customer.customerId}
+        paymentMethod: {from: card.paymentMethodId}
+        cvcToken: {from: cvcToken.tokenId}
+        confirm: true
+      expectFailure:
+        status: [400]
+        description: a token is used once
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: >-
+              error.type == "invalid_request_error" && error.code == "token_already_used" &&
+              error.payment_intent.status == "requires_payment_method"
+          - type: fieldAbsent
+            path: error.param
+          - type: fieldAbsent
+            path: error.decline_code
+
+    - id: noKind
+      node: createToken
+      dependsOn: [reuse]
+      description: A token request naming nothing to tokenize
+      expectFailure:
+        status: [400]
+        description: parameter_missing, with no param
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: error.type == "invalid_request_error" && error.code == "parameter_missing"
+          - type: fieldAbsent
+            path: error.param
+          - type: fieldAbsent
+            path: error.decline_code
+
+    - id: twoKinds
+      node: createToken
+      dependsOn: [noKind]
+      description: A token request naming two kinds at once
+      values:
+        idNumber: "000000000"
+        cvc: "123"
+      expectFailure:
+        status: [400]
+        description: one kind per token
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: error.type == "invalid_request_error"
+          - type: fieldAbsent
+            path: error.code
+          - type: fieldAbsent
+            path: error.param
+          - type: fieldAbsent
+            path: error.decline_code
+
+    - id: rawCard
+      node: createToken
+      dependsOn: [twoKinds]
+      description: A token request with a raw card number
+      values:
+        cardNumber: "4242424242424242"
+        cardExpMonth: "12"
+        cardExpYear: "2030"
+        cardCvc: "123"
+      expectFailure:
+        status: [402]
+        description: raw card numbers are refused, as they are on PaymentMethods
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: error.type == "invalid_request_error"
+          - type: fieldAbsent
+            path: error.code
+          - type: fieldAbsent
+            path: error.param
+          - type: fieldAbsent
+            path: error.decline_code
+
+    - id: missing
+      node: getToken
+      dependsOn: [rawCard]
+      description: Read a token that doesn't exist
+      values:
+        tokenId: btok_1AAAAAAAAAAAAAAAAAAAAAAA
+      expectFailure:
+        status: [400]
+        description: resource_missing on param token, and 400 rather than 404
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: error.type == "invalid_request_error" && error.code == "resource_missing" && error.param == "token"
+          - type: fieldAbsent
+            path: error.decline_code
+
+    - id: testToken
+      node: getToken
+      dependsOn: [missing]
+      description: One of Stripe's own test card tokens
+      values:
+        tokenId: tok_visa
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: type == "card" && used == false && cardBrand == "Visa"
+
+    - id: openPayments
+      node: listPaymentIntents
+      dependsOn: [testToken]
+      description: The customer's PaymentIntents after the refused reuse
+      values:
+        customerId: {from: customer.customerId}
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: ourOpenCount == 1
+
+    - id: cancelLeftOpen
+      node: cancelPaymentIntent
+      isGoal: true
+      description: Cancel the PaymentIntent the refused reuse left behind
+      values:
+        paymentIntentId:
+          from: openPayments.paymentIntents
+          select:
+            strategy: first
+            field: id
+            filter: status == "requires_payment_method"
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: status == "canceled"

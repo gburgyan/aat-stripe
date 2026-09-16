@@ -1,0 +1,26 @@
+adapter: verifySetupIntentMicrodeposits
+protocol: http
+
+request:
+  method: POST
+  path: /v1/setup_intents/{{setupIntentId}}/verify_microdeposits
+  form:
+    descriptor_code: "{{descriptorCode}}"
+    amounts[]: "{{amounts}}"
+
+response:
+  extract:
+    setupIntentId: id
+    status: status
+    mandateId:
+      path: mandate
+      default: ""
+    paymentMethodId:
+      path: payment_method
+      default: ""
+    nextActionType:
+      path: next_action.type
+      default: ""
+    lastSetupErrorCode:
+      path: last_setup_error.code
+      default: ""

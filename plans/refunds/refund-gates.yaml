@@ -1,0 +1,124 @@
+# What this account can't do with refunds, asserted rather than assumed. A refund of a bank transfer payment has to
+# collect the customer's bank details by email, which needs a verified account email, so Stripe refuses it here. Only a
+# refund waiting on the customer can be canceled or expired, so a card refund, which succeeds at once, refuses both.
+intent:
+  goal: expire
+  description: Bank transfer refunds are gated on this account, and a card refund can't be canceled or expired
+
+execution:
+  steps:
+    - id: customer
+      node: createCustomer
+      description: A customer tagged metadata[source]=aat-stripe
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: livemode == false && source == "aat-stripe"
+
+    - id: fund
+      node: fundCashBalance
+      dependsOn: [customer]
+      description: A transfer arrives, to pay by bank transfer
+      values:
+        customerId: {from: customer.customerId}
+        amount: 2000
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: type == "funded" && endingBalance == 2000
+
+    - id: pay
+      node: createBankTransferPaymentIntent
+      dependsOn: [fund]
+      description: Pay out of the balance, which spends it
+      values:
+        customerId: {from: customer.customerId}
+        amount: 2000
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: status == "succeeded" && amountReceived == 2000
+
+    - id: refundTransfer
+      node: createRefund
+      dependsOn: [pay]
+      description: Refund the bank transfer payment
+      values:
+        paymentIntentId: {from: pay.paymentIntentId}
+        amount: 500
+      expectFailure:
+        status: [400]
+        description: the refund needs the customer's bank details by email, which this account can't send
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: error.type == "invalid_request_error"
+          - type: fieldAbsent
+            path: error.code
+          - type: fieldAbsent
+            path: error.param
+          - type: fieldAbsent
+            path: error.decline_code
+
+    - id: cardPay
+      node: createPaymentIntent
+      dependsOn: [refundTransfer]
+      description: A card payment to refund
+      values:
+        customerId: {from: customer.customerId}
+        confirm: true
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: status == "succeeded"
+
+    - id: cardRefund
+      node: createRefund
+      description: Refund it, which succeeds at once
+      values:
+        paymentIntentId: {from: cardPay.paymentIntentId}
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: status == "succeeded" && amount == "{{cardPay.amount}}"
+
+    - id: cancel
+      node: cancelRefund
+      dependsOn: [cardRefund]
+      description: Cancel the card refund
+      values:
+        refundId: {from: cardRefund.refundId}
+      expectFailure:
+        status: [400]
+        description: only a refund waiting on the customer can be canceled
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: error.type == "invalid_request_error"
+          - type: fieldAbsent
+            path: error.code
+          - type: fieldAbsent
+            path: error.param
+          - type: fieldAbsent
+            path: error.decline_code
+
+    - id: expire
+      node: expireRefund
+      dependsOn: [cancel]
+      isGoal: true
+      description: Expire the card refund with the test helper
+      values:
+        refundId: {from: cardRefund.refundId}
+      expectFailure:
+        status: [400]
+        description: the helper is for a refund waiting on the customer
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: error.type == "invalid_request_error"
+          - type: fieldAbsent
+            path: error.code
+          - type: fieldAbsent
+            path: error.param
+          - type: fieldAbsent
+            path: error.decline_code

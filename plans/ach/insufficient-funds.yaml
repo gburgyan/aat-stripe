@@ -1,0 +1,10 @@
+# An ACH debit the bank refuses for insufficient funds, which comes back after the payment is already processing.
+kind: recipe
+metadata:
+  prompt: Pay by a bank account without the money
+  graphVersion: "1.0.0"
+selection:
+  workflow: ACH Debit
+  description: Verified, then failed for insufficient funds
+  choices:
+    outcome: Bank Account Without Funds

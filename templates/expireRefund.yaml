@@ -1,0 +1,14 @@
+adapter: expireRefund
+protocol: http
+
+request:
+  method: POST
+  path: /v1/test_helpers/refunds/{{refundId}}/expire
+
+response:
+  extract:
+    refundId: id
+    status: status
+    failureReason:
+      path: failure_reason
+      default: ""

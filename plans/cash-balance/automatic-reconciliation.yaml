@@ -1,0 +1,10 @@
+# A bank transfer that pays as it arrives: the cash balance is funded and the payment takes it at once.
+kind: recipe
+metadata:
+  prompt: Pay by bank transfer
+  graphVersion: "1.0.0"
+selection:
+  workflow: Bank Transfer
+  description: Reconciled as the transfer arrives
+  choices:
+    reconciliation: Automatic Reconciliation

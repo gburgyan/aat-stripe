@@ -1,0 +1,56 @@
+# The bank details a customer transfers money into, read under OpenAPI validation set to auto rather than strict.
+# Stripe's own spec says a funding instruction's bank_transfer.type is eu_bank_transfer or jp_bank_transfer, and the
+# live API answers us_bank_transfer for a US account, so the response fails strict validation. Run it with:
+#   aat run plan drift/funding-instructions.yaml --env test-auto
+intent:
+  goal: euInstructions
+  description: Funding instructions come back with a bank_transfer type Stripe's own spec doesn't allow
+
+execution:
+  steps:
+    - id: customer
+      node: createCustomer
+      description: A customer tagged metadata[source]=aat-stripe
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: livemode == false && source == "aat-stripe"
+
+    - id: usInstructions
+      node: createFundingInstructions
+      dependsOn: [customer]
+      description: The US bank details the customer transfers into
+      values:
+        customerId: {from: customer.customerId}
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: >-
+              livemode == false && fundingType == "bank_transfer" && bankTransferType == "us_bank_transfer" &&
+              currency == "usd" && addressCount == 2 && firstAddressType == "aba"
+
+    - id: again
+      node: createFundingInstructions
+      dependsOn: [usInstructions]
+      description: The same customer's details a second time, which are the same ones
+      values:
+        customerId: {from: customer.customerId}
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: bankTransferType == "us_bank_transfer" && addressCount == "{{usInstructions.addressCount}}"
+
+    - id: euInstructions
+      node: createFundingInstructions
+      dependsOn: [again]
+      isGoal: true
+      description: Euro details for a European transfer, the type the spec does describe
+      values:
+        customerId: {from: customer.customerId}
+        currency: eur
+        bankTransferType: eu_bank_transfer
+        euCountry: DE
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: bankTransferType == "eu_bank_transfer" && currency == "eur" && addressCount >= 1

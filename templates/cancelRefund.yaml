@@ -1,0 +1,14 @@
+adapter: cancelRefund
+protocol: http
+
+request:
+  method: POST
+  path: /v1/refunds/{{refundId}}/cancel
+
+response:
+  extract:
+    refundId: id
+    status: status
+    failureReason:
+      path: failure_reason
+      default: ""

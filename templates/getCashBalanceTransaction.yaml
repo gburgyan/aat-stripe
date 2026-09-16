@@ -1,0 +1,21 @@
+adapter: getCashBalanceTransaction
+protocol: http
+
+request:
+  method: GET
+  path: /v1/customers/{{customerId}}/cash_balance_transactions/{{cashBalanceTransactionId}}
+
+response:
+  extract:
+    cashBalanceTransactionId: id
+    type: type
+    netAmount: net_amount
+    endingBalance: ending_balance
+    currency: currency
+    customerId: customer
+    reference:
+      path: funded.bank_transfer.reference
+      default: ""
+    appliedPaymentIntentId:
+      path: applied_to_payment.payment_intent
+      default: ""

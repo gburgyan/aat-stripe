@@ -1,0 +1,26 @@
+adapter: getCashBalance
+protocol: http
+
+request:
+  method: GET
+  path: /v1/customers/{{customerId}}/cash_balance
+
+response:
+  extract:
+    customerId: customer
+    livemode: livemode
+    reconciliationMode:
+      path: settings.reconciliation_mode
+      default: ""
+    usingMerchantDefault:
+      path: settings.using_merchant_default
+      default: false
+    availableUsd:
+      path: available.usd
+      default: 0
+    availableEur:
+      path: available.eur
+      default: 0
+    currencyCount:
+      path: available.@keys.#
+      default: 0

@@ -1,0 +1,10 @@
+# An ACH debit that goes through: verified with microdeposits, processing, then succeeded about 20 seconds later.
+kind: recipe
+metadata:
+  prompt: Pay by US bank account
+  graphVersion: "1.0.0"
+selection:
+  workflow: ACH Debit
+  description: Verified, then settled
+  choices:
+    outcome: Bank Account Pays

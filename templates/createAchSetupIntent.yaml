@@ -1,0 +1,53 @@
+adapter: createAchSetupIntent
+protocol: http
+
+request:
+  method: POST
+  path: /v1/setup_intents
+  headers:
+    Idempotency-Key: "{{idempotencyKey}}"
+  form:
+    customer: "{{customerId}}"
+    payment_method: "{{paymentMethod}}"
+    payment_method_types[]: us_bank_account
+    confirm: "{{confirm}}"
+    usage: "{{usage}}"
+    mandate_data:
+      customer_acceptance:
+        type: "{{acceptanceType}}"
+        online:
+          ip_address: "{{acceptanceIp}}"
+          user_agent: "{{acceptanceUserAgent}}"
+    metadata:
+      source: aat-stripe
+
+response:
+  extract:
+    setupIntentId: id
+    status: status
+    usage: usage
+    livemode: livemode
+    customerId:
+      path: customer
+      default: ""
+    paymentMethodId:
+      path: payment_method
+      default: ""
+    mandateId:
+      path: mandate
+      default: ""
+    latestAttemptId:
+      path: latest_attempt
+      default: ""
+    nextActionType:
+      path: next_action.type
+      default: ""
+    microdepositType:
+      path: next_action.verify_with_microdeposits.microdeposit_type
+      default: ""
+    lastSetupErrorCode:
+      path: last_setup_error.code
+      default: ""
+    source:
+      path: metadata.source
+      default: ""

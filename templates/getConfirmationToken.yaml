@@ -1,0 +1,28 @@
+adapter: getConfirmationToken
+protocol: http
+
+request:
+  method: GET
+  path: /v1/confirmation_tokens/{{confirmationTokenId}}
+
+response:
+  extract:
+    confirmationTokenId: id
+    livemode: livemode
+    created: created
+    expiresAt: expires_at
+    previewType:
+      path: payment_method_preview.type
+      default: ""
+    previewBrand:
+      path: payment_method_preview.card.brand
+      default: ""
+    setupFutureUsage:
+      path: setup_future_usage
+      default: ""
+    paymentIntentId:
+      path: payment_intent
+      default: ""
+    setupIntentId:
+      path: setup_intent
+      default: ""

@@ -1,0 +1,19 @@
+adapter: getToken
+protocol: http
+
+request:
+  method: GET
+  path: /v1/tokens/{{tokenId}}
+
+response:
+  extract:
+    tokenId: id
+    type: type
+    used: used
+    livemode: livemode
+    bankLast4:
+      path: bank_account.last4
+      default: ""
+    cardBrand:
+      path: card.brand
+      default: ""

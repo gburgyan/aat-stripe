@@ -9,9 +9,12 @@ own OpenAPI spec.
 - customers, with updates, search, balance transactions, and tax IDs, and idempotent requests
 - card payments with PaymentIntents: every capture path, every decline, 3D Secure, and refunds
 - saved cards: PaymentMethods, SetupIntents, and charging a saved card off session
+- bank debits: ACH with microdeposit verification and mandates, and SEPA Direct Debit
+- bank transfers into a customer's cash balance, reconciled as they arrive or by hand
+- tokens, ConfirmationTokens, and search
 
-ACH, risk, Billing on test clocks, Checkout, Connect, Terminal, Issuing, Tax, and the rest of what test mode can drive
-come next.
+Risk, Billing on test clocks, Checkout, Connect, Terminal, Issuing, Tax, and the rest of what test mode can drive come
+next.
 
 ## Getting started
 
@@ -41,6 +44,7 @@ aat run batch --env test-ci                # every plan, paced, with the guards 
 aat run plan payments/partial-capture      # one plan
 aat run plan payments/manual-capture --layer card-amex --layer currency-jpy
 aat run plan drift/account-default.yaml --env account-default
+aat run plan drift/funding-instructions.yaml --env test-auto   # a response the spec doesn't describe
 aat run show latest                        # what the last run sent and got back
 ```
 
@@ -50,6 +54,7 @@ aat run show latest                        # what the last run sent and got back
 |---|---|
 | `test` (default) | `Stripe-Version: 2026-08-26.dahlia`, the spec's version, and `oasValidation: strict`: a request or response the spec doesn't allow fails the step |
 | `test-ci` | `test`, with request starts at least 60 ms apart for long batches |
+| `test-auto` | `test`, with spec findings reported rather than failing a step, for [drift/funding-instructions](drift/funding-instructions.yaml), whose response Stripe's own spec doesn't describe |
 | `account-default` | No `Stripe-Version`, so Stripe answers at the account's default API version; spec findings are reported without failing a step |
 
 `packageEpoch` (a var) is when the package started; the guard plans look at objects created since then.
@@ -67,11 +72,19 @@ otherwise.
 - **Saved Card** ([workflow](workflows/saved-card.yaml)) saves a customer's card with a SetupIntent confirmed for
   off-session use. It checks the one setup attempt and the PaymentMethod the customer now holds, then charges that
   PaymentMethod with no customer present.
-- **Recipes:** the plans in [`plans/payments/`](plans/payments/) and [`plans/declines/`](plans/declines/) are mostly
-  recipes of a few lines that choose a slot, and [saved-card](plans/setup-intents/saved-card.yaml) names its workflow.
+- **ACH Debit** ([workflow](workflows/ach-debit.yaml)) charges a US bank account given by its numbers. The `outcome`
+  slot chooses the test account, which decides what the bank does: it pays, it has no money, or it is closed. Each
+  verifies the microdeposits and then reads the payment until the bank has answered, about 20 seconds later.
+- **Bank Transfer** ([workflow](workflows/bank-transfer.yaml)) pays out of a customer's cash balance. The
+  `reconciliation` slot chooses automatic, where the payment takes the money as it arrives, or manual, where
+  `apply_customer_balance` puts it toward the payment in two parts. Both end with the balance at zero.
+- **Recipes:** the plans in [`plans/payments/`](plans/payments/), [`plans/declines/`](plans/declines/),
+  [`plans/ach/`](plans/ach/), and [`plans/cash-balance/`](plans/cash-balance/) are mostly recipes of a few lines that
+  choose a slot, and [saved-card](plans/setup-intents/saved-card.yaml) names its workflow.
 - **Layers** ([`layers/`](layers/)) swap the card brand, the currency, or the amount without editing a plan.
 - **Full plans:** refunds, 3D Secure, incremental authorization, updates, customer search, balances, and tax IDs,
-  PaymentMethods, SetupIntents' states and refusals, and the guards.
+  PaymentMethods, SetupIntents' states and refusals, ACH and SEPA, the cash balance, tokens, ConfirmationTokens,
+  search, and the guards.
 
 ## What's exercised
 
@@ -135,6 +148,30 @@ otherwise.
 | `POST /v1/setup_intents/{intent}/cancel` | `cancelSetupIntent` | [update-confirm-cancel](plans/setup-intents/update-confirm-cancel.yaml), [authentication](plans/setup-intents/authentication.yaml), and cleanup |
 | `GET /v1/setup_intents` | `listSetupIntents` | [update-confirm-cancel](plans/setup-intents/update-confirm-cancel.yaml), [authentication](plans/setup-intents/authentication.yaml), [SetupIntents guard](plans/zz-guard/setup-intents.yaml) |
 | `GET /v1/setup_attempts` | `listSetupAttempts` | [saved-card](plans/setup-intents/saved-card.yaml) |
+| `POST /v1/payment_methods` (`us_bank_account`) | `createAchPaymentMethod` | every plan in [ach](plans/ach/) |
+| `POST /v1/payment_intents` (`us_bank_account`) | `createAchPaymentIntent` | every plan in [ach](plans/ach/) |
+| `POST /v1/payment_intents/{intent}/verify_microdeposits` | `verifyPaymentIntentMicrodeposits` | [microdeposit-refusals](plans/ach/microdeposit-refusals.yaml), the ACH Debit recipes |
+| `POST /v1/setup_intents` (`us_bank_account`) | `createAchSetupIntent` | [saved-bank-account](plans/ach/saved-bank-account.yaml) |
+| `POST /v1/setup_intents/{intent}/verify_microdeposits` | `verifySetupIntentMicrodeposits` | [saved-bank-account](plans/ach/saved-bank-account.yaml) |
+| `GET /v1/mandates/{mandate}` | `getMandate` | [saved-bank-account](plans/ach/saved-bank-account.yaml), [direct-debit](plans/sepa/direct-debit.yaml) |
+| `POST /v1/payment_methods` (`sepa_debit`) | `createSepaPaymentMethod` | [direct-debit](plans/sepa/direct-debit.yaml) |
+| `POST /v1/payment_intents` (`sepa_debit`) | `createSepaPaymentIntent` | [direct-debit](plans/sepa/direct-debit.yaml) |
+| `GET /v1/customers/{customer}/cash_balance` | `getCashBalance` | every plan in [cash-balance](plans/cash-balance/) |
+| `POST /v1/customers/{customer}/cash_balance` | `updateCashBalance` | [apply-refusals](plans/cash-balance/apply-refusals.yaml), [manual-reconciliation](plans/cash-balance/manual-reconciliation.yaml) |
+| `POST /v1/customers/{customer}/funding_instructions` | `createFundingInstructions` | [funding-instructions](drift/funding-instructions.yaml), under `auto` validation |
+| `POST /v1/test_helpers/customers/{customer}/fund_cash_balance` | `fundCashBalance` | every plan in [cash-balance](plans/cash-balance/), [refund-gates](plans/refunds/refund-gates.yaml) |
+| `GET /v1/customers/{customer}/cash_balance_transactions` | `listCashBalanceTransactions` | [funding-and-refusals](plans/cash-balance/funding-and-refusals.yaml), the Bank Transfer recipes |
+| `GET /v1/customers/{customer}/cash_balance_transactions/{transaction}` | `getCashBalanceTransaction` | [funding-and-refusals](plans/cash-balance/funding-and-refusals.yaml) |
+| `POST /v1/payment_intents` (`customer_balance`) | `createBankTransferPaymentIntent` | every plan in [cash-balance](plans/cash-balance/), [refund-gates](plans/refunds/refund-gates.yaml) |
+| `POST /v1/payment_intents/{intent}/apply_customer_balance` | `applyCustomerBalance` | [apply-refusals](plans/cash-balance/apply-refusals.yaml), [manual-reconciliation](plans/cash-balance/manual-reconciliation.yaml) |
+| `POST /v1/tokens` | `createToken` | [tokens](plans/tokens/tokens.yaml) |
+| `GET /v1/tokens/{token}` | `getToken` | [tokens](plans/tokens/tokens.yaml) |
+| `POST /v1/test_helpers/confirmation_tokens` | `createConfirmationToken` | [confirm-and-save](plans/confirmation-tokens/confirm-and-save.yaml) |
+| `GET /v1/confirmation_tokens/{confirmation_token}` | `getConfirmationToken` | [confirm-and-save](plans/confirmation-tokens/confirm-and-save.yaml) |
+| `GET /v1/payment_intents/search` | `searchPaymentIntents` | [payment-intents-and-charges](plans/search/payment-intents-and-charges.yaml) |
+| `GET /v1/charges/search` | `searchCharges` | [payment-intents-and-charges](plans/search/payment-intents-and-charges.yaml) |
+| `POST /v1/refunds/{refund}/cancel` | `cancelRefund` | [refund-gates](plans/refunds/refund-gates.yaml), refused |
+| `POST /v1/test_helpers/refunds/{refund}/expire` | `expireRefund` | [refund-gates](plans/refunds/refund-gates.yaml), refused |
 
 ## What Stripe does in test mode
 
@@ -232,6 +269,51 @@ Each item names the plan that asserts it. Items marked *probe* were seen in one-
   [saved-card](plans/setup-intents/saved-card.yaml),
   [update-confirm-cancel](plans/setup-intents/update-confirm-cancel.yaml),
   [authentication](plans/setup-intents/authentication.yaml)
+- **ACH debits take a mandate, verification, and time.** A debit without `mandate_data` is refused, and still leaves a
+  PaymentIntent in `requires_confirmation`. A bank account given by its numbers waits in `requires_action` for
+  microdeposits, which on this account are verified by a descriptor code, `SM11AA` in test mode.
+  - a wrong code is `payment_method_microdeposit_verification_descriptor_code_mismatch`
+  - one amount instead of two is `payment_method_microdeposit_verification_amounts_invalid` on param `amounts`
+  - verifying an intent that isn't waiting is `payment_intent_unexpected_state`, or `intent_invalid_state` on a
+    SetupIntent
+
+  Verified, the payment goes through `processing` and settles about 20 seconds later, or fails with
+  `insufficient_funds` or `account_closed`. [ach](plans/ach/)
+- **Mandates.** A SetupIntent's mandate is `multi_use` and stays `active`, and a later off-session debit reuses it with
+  nothing to collect again. Stripe records how the customer accepted it, with the IP address and user agent sent as
+  `mandate_data`. [saved-bank-account](plans/ach/saved-bank-account.yaml)
+- **SEPA Direct Debit.** A euro debit from a test IBAN goes through `processing` and succeeds about 15 seconds later,
+  with a mandate that carries a reference. The failing test IBAN is accepted the same way and fails afterward, with
+  `payment_intent_payment_attempt_failed` and `incorrect_account_holder_name` on the charge.
+  [direct-debit](plans/sepa/direct-debit.yaml)
+- **Stripe's own spec doesn't describe one of its responses.** Funding instructions give a customer bank details to pay
+  into, two of them for `us_bank_transfer`, `aba` and `swift`, and the same ones again for the same customer. The spec
+  says that response's `bank_transfer.type` is `eu_bank_transfer` or `jp_bank_transfer`, so the `us_bank_transfer` the
+  live API answers with fails strict validation. Those reads run in
+  [drift/funding-instructions](drift/funding-instructions.yaml) under `auto` validation, which reports the finding
+  without failing the step; everything else stays strict.
+- **Bank transfers and the cash balance.** A test helper pretends a customer's transfer arrived.
+  - **Automatic reconciliation** pays as the money is there, or takes part and waits with the `amount_remaining`.
+  - **Manual reconciliation** waits for `apply_customer_balance`, which refuses more than remains, another currency, a
+    payment already paid, and a payment that isn't a `customer_balance` one. Each application records its own
+    `applied_to_payment` transaction, so a balance applied in two parts records two.
+  - An amount below 1 is `parameter_invalid_integer`, and an unknown mode is refused on param
+    `settings[reconciliation_mode]`.
+  - **A customer with a positive cash balance can't be deleted,** so every plan spends it to zero first.
+
+  [cash-balance](plans/cash-balance/)
+- **Tokens hold one thing once.** A bank account, a PII number, or a CVC collected again. Naming none is
+  `parameter_missing`, naming two is refused, and a raw card number is refused as it is on PaymentMethods. A CVC token
+  spent on a payment reads back `used`, and using it again is `token_already_used`, which still leaves a PaymentIntent.
+  An unknown token is 400 `resource_missing`, not 404. [tokens](plans/tokens/tokens.yaml)
+- **ConfirmationTokens.** The test helper makes what Stripe.js would collect. One lasts 12 hours, previews its payment
+  method, and confirms exactly one PaymentIntent: a second is `payment_intent_confirmation_token_invalid`, and a
+  `setup_future_usage` that doesn't match the PaymentIntent's is refused on that param. A token that asks to save the
+  card leaves the customer holding it. [confirm-and-save](plans/confirmation-tokens/confirm-and-save.yaml)
+- **Search lags the lists, everywhere.** A new PaymentIntent took about 30 seconds to appear in search, while charges
+  were in the index sooner. Queries compare amounts (`amount>1500`), read metadata, and page with the previous
+  response's `next_page`. A field that can't be searched is 400 with no code, and no query at all is 400
+  `parameter_missing` on param `query`. [payment-intents-and-charges](plans/search/payment-intents-and-charges.yaml)
 - **Events and API versions.** A new customer's `customer.created` event names the customer and the request that
   created it. Events are rendered at the account's default API version even when the request pinned another, and
   without a `Stripe-Version` header the response header names that same default. [events](plans/account/events.yaml),
@@ -247,7 +329,7 @@ Each item names the plan that asserts it. Items marked *probe* were seen in one-
 
 | Feature | In this package |
 |---|---|
-| Strict OpenAPI validation | Every node names its operation in Stripe's own spec, and `test` checks each request and response against it: 118 requests and 279 responses in a full batch, with 0 violations |
+| Strict OpenAPI validation | Every node names its operation in Stripe's own spec, and `test` checks each request and response against it: 200 requests and 516 responses in a full batch, with 1 violation — the step that sends a reconciliation mode the spec's enum doesn't allow, on purpose. A step that expects to fail never fails on a violation |
 | Workflows, slots, and recipes | Card Payment's `capture` slot and Declined Card's `decline` slot, with most payment plans as recipes of a few lines |
 | Layers | Card brands, currencies (yen is zero-decimal), and amounts, each changing only the inputs it names |
 | Offsets on references | `amountToCapture: "{{authorize.amount - 500}}"`, a refund of `"{{pay.amount + 1}}"` to prove the limit, and `endingBalance == "{{credit.endingBalance + 700}}"` |
@@ -257,7 +339,8 @@ Each item names the plan that asserts it. Items marked *probe* were seen in one-
 | Inputs named for what they hold | `/v1/customers/{{customerId}}` fills the spec's `{customer}`, and `starting_after={{startingAfter}}` its query parameter |
 | Headers as outputs | `createCustomer` reads `Idempotent-Replayed`, `Original-Request`, `Request-Id`, and `Stripe-Version` |
 | Paging with `repeat.next` | Stripe lists page with `next: {startingAfter: lastId}` and stop on `until: hasMore == false` |
-| Polling with `repeat.until` | Customer search, which lags behind lists, is read every 2 seconds `until: count >= 1` |
+| Polling with `repeat.until` | Search, which lags behind lists, is read every 2 seconds `until: count >= 1`, and a bank debit every 3 seconds `until: status != "processing"` |
+| Test helpers as nodes | `fund_cash_balance`, `confirmation_tokens`, and the refund `expire` helper are nodes like any other, so a plan drives what only test mode can do |
 | Guards | [`zz-guard/`](plans/zz-guard/) reads every page since `packageEpoch` and fails on a customer, an open PaymentIntent, or an open SetupIntent of ours left behind |
 | Environments | `_stripe` → `_pinned` → `test` → `test-ci`, and `account-default` beside them without the version header |
 | Error detection | A create answered with `livemode: true` fails the step |
@@ -273,6 +356,10 @@ Each item names the plan that asserts it. Items marked *probe* were seen in one-
   - Exchange Rates, deprecated for FX Quotes and answering 404
   - a charge's nested `refund`, `refunds`, and `dispute` paths, which the Refunds and Disputes APIs replace
 - **Gated on this account:**
+  - refunds of bank transfer payments, which have to collect the customer's bank details by email: that needs a
+    verified account email, so Stripe refuses them here. Refund cancel and the refund expire helper work only on those
+    refunds, so both are covered by their refusals on a card refund
+    ([refund-gates](plans/refunds/refund-gates.yaml))
   - incremental authorization (above)
   - Issuing cards, which need a v2 financial account (`financial_account_v2`) that the pinned spec doesn't describe
   - Forwarding (`forwarding_api_inactive`)

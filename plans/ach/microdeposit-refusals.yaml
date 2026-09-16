@@ -1,0 +1,169 @@
+# What ACH refuses before a debit can go through. A debit needs the customer's mandate, and a bank account given by its
+# numbers is verified with microdeposits: the descriptor code must match, and amounts come in twos. A PaymentIntent that
+# isn't waiting for verification can't be verified at all. The create Stripe refuses for a missing mandate still leaves a
+# PaymentIntent, which the plan finds under the customer and cancels.
+intent:
+  goal: cancelLeftOpen
+  description: ACH refuses a debit without a mandate, and refuses microdeposit verification that doesn't match
+
+execution:
+  steps:
+    - id: customer
+      node: createCustomer
+      description: A customer tagged metadata[source]=aat-stripe
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: livemode == false && source == "aat-stripe"
+
+    - id: bankAccount
+      node: createAchPaymentMethod
+      dependsOn: [customer]
+      description: A bank account given by its routing and account numbers
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: >-
+              livemode == false && type == "us_bank_account" && bankName == "STRIPE TEST BANK" && last4 == "6789" &&
+              accountType == "checking" && accountHolderType == "individual" && preferredNetwork == "ach" && customerId == ""
+
+    - id: debit
+      node: createAchPaymentIntent
+      description: Charge the bank account, which has to be verified first
+      values:
+        customerId: {from: customer.customerId}
+        paymentMethod: {from: bankAccount.paymentMethodId}
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: >-
+              livemode == false && status == "requires_action" && nextActionType == "verify_with_microdeposits" &&
+              microdepositType == "descriptor_code" && amountReceived == 0 && source == "aat-stripe"
+
+    - id: wrongCode
+      node: verifyPaymentIntentMicrodeposits
+      dependsOn: [debit]
+      description: Verify with a descriptor code that isn't the one sent
+      values:
+        paymentIntentId: {from: debit.paymentIntentId}
+        descriptorCode: SM00AA
+      expectFailure:
+        status: [400]
+        description: the descriptor code doesn't match
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: error.type == "invalid_request_error" && error.code == "payment_method_microdeposit_verification_descriptor_code_mismatch"
+          - type: fieldAbsent
+            path: error.param
+          - type: fieldAbsent
+            path: error.decline_code
+
+    - id: oneAmount
+      node: verifyPaymentIntentMicrodeposits
+      dependsOn: [wrongCode]
+      description: Verify with one deposit amount instead of two
+      values:
+        paymentIntentId: {from: debit.paymentIntentId}
+        descriptorCode: {}
+        amounts: {value: [32]}
+      expectFailure:
+        status: [400]
+        description: microdeposit verification takes exactly two amounts
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: >-
+              error.type == "invalid_request_error" && error.code == "payment_method_microdeposit_verification_amounts_invalid" &&
+              error.param == "amounts"
+          - type: fieldAbsent
+            path: error.decline_code
+
+    - id: card
+      node: createPaymentIntent
+      dependsOn: [oneAmount]
+      description: A card payment, which needs no verification
+      values:
+        customerId: {from: customer.customerId}
+        confirm: true
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: status == "succeeded"
+
+    - id: verifyCard
+      node: verifyPaymentIntentMicrodeposits
+      description: Verify the microdeposits of the card payment
+      values:
+        paymentIntentId: {from: card.paymentIntentId}
+      expectFailure:
+        status: [400]
+        description: payment_intent_unexpected_state, since it is not waiting for verification
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: error.type == "invalid_request_error" && error.code == "payment_intent_unexpected_state"
+          - type: fieldAbsent
+            path: error.param
+          - type: fieldAbsent
+            path: error.decline_code
+
+    - id: secondAccount
+      node: createAchPaymentMethod
+      dependsOn: [verifyCard]
+      description: A second bank account, which no payment has used yet
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: type == "us_bank_account" && customerId == "" && paymentMethodId != "{{bankAccount.paymentMethodId}}"
+
+    - id: noMandate
+      node: createAchPaymentIntent
+      dependsOn: [secondAccount]
+      description: Charge that bank account without mandate acceptance
+      values:
+        customerId: {from: customer.customerId}
+        paymentMethod: {from: secondAccount.paymentMethodId}
+        acceptanceType: {}
+        acceptanceIp: {}
+        acceptanceUserAgent: {}
+      expectFailure:
+        status: [400]
+        description: a debit needs a mandate, and this create still leaves a PaymentIntent
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: error.type == "invalid_request_error"
+          - type: fieldAbsent
+            path: error.code
+          - type: fieldAbsent
+            path: error.param
+          - type: fieldAbsent
+            path: error.decline_code
+
+    - id: open
+      node: listPaymentIntents
+      dependsOn: [noMandate]
+      description: The customer's PaymentIntents, including the one the refusal left
+      values:
+        customerId: {from: customer.customerId}
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: count == 3 && ourCount == 3 && ourOpenCount == 2
+
+    - id: cancelLeftOpen
+      node: cancelPaymentIntent
+      isGoal: true
+      description: Cancel the PaymentIntent the refused create left behind
+      values:
+        paymentIntentId:
+          from: open.paymentIntents
+          select:
+            strategy: first
+            field: id
+            filter: status == "requires_confirmation"
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: status == "canceled" && paymentIntentId != "{{debit.paymentIntentId}}"

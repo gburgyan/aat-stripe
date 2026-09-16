@@ -1,0 +1,28 @@
+execution:
+  steps:
+    - id: fund
+      node: fundCashBalance
+      description: The customer's transfer arrives
+      values:
+        customerId: {from: customer.customerId}
+        amount: 2000
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: >-
+              livemode == false && type == "funded" && netAmount == 2000 && endingBalance == 2000 &&
+              currency == "usd" && bankTransferType == "us_bank_transfer" && reference == "aat-stripe"
+
+    - id: pay
+      node: createBankTransferPaymentIntent
+      dependsOn: [fund]
+      description: Take the payment out of the balance, which happens as the money is there
+      values:
+        customerId: {from: customer.customerId}
+        amount: 2000
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: >-
+              livemode == false && status == "succeeded" && amountReceived == "{{fund.netAmount}}" &&
+              nextActionType == "" && source == "aat-stripe"

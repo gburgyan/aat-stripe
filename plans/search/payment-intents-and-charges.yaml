@@ -1,0 +1,150 @@
+# Stripe's search endpoints read an index rather than the objects, and the index is eventually consistent: a new payment
+# took more than two minutes to appear in one run, and a search that had found it answered without it again on the next
+# read. So the plan polls only until the index has the payment at all, and proves the query language and paging against
+# this package's own metadata, which the index took up long ago. A field that can't be searched, and a search with no
+# query, are refused.
+intent:
+  goal: chargeBadField
+  description: Search finds a new payment once the index catches up, and reads the package's own objects by metadata
+
+execution:
+  steps:
+    - id: customer
+      node: createCustomer
+      description: A customer tagged metadata[source]=aat-stripe
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: livemode == false && source == "aat-stripe"
+
+    - id: pay
+      node: createPaymentIntent
+      dependsOn: [customer]
+      description: A payment of 2000
+      values:
+        customerId: {from: customer.customerId}
+        confirm: true
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: status == "succeeded" && amount == 2000
+
+    - id: found
+      node: searchPaymentIntents
+      description: Search for the customer's payment until the index has it
+      values:
+        query: "customer:'{{customer.customerId}}'"
+      repeat:
+        until: count >= 1
+        interval: 3s
+        max: 80
+        timeout: 280s
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: count >= 1 && firstId == "{{pay.paymentIntentId}}" && hasMore == false
+
+    - id: byMetadata
+      node: searchPaymentIntents
+      dependsOn: [found]
+      description: Search this package's payments, which the index took up long ago
+      values:
+        query: "metadata['source']:'aat-stripe' AND status:'succeeded'"
+        limit: 2
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: count == 2 && hasMore == true && nextPage != ""
+
+    - id: nextPage
+      node: searchPaymentIntents
+      description: The next page, from the first page's cursor
+      values:
+        query: "metadata['source']:'aat-stripe' AND status:'succeeded'"
+        limit: 2
+        page: {from: byMetadata.nextPage}
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: count == 2 && firstId != "{{byMetadata.firstId}}"
+
+    - id: byAmount
+      node: searchPaymentIntents
+      dependsOn: [nextPage]
+      description: Search compares numbers, not only matches them
+      values:
+        query: "metadata['source']:'aat-stripe' AND amount>1900"
+        limit: 5
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: count >= 1
+
+    - id: badField
+      node: searchPaymentIntents
+      dependsOn: [byAmount]
+      description: Search by a field PaymentIntents can't be searched by
+      values:
+        query: "emial:'x'"
+      expectFailure:
+        status: [400]
+        description: an unsupported search field
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: error.type == "invalid_request_error"
+          - type: fieldAbsent
+            path: error.code
+          - type: fieldAbsent
+            path: error.param
+          - type: fieldAbsent
+            path: error.decline_code
+
+    - id: noQuery
+      node: searchPaymentIntents
+      dependsOn: [badField]
+      description: Search with no query at all
+      values:
+        query: {}
+      expectFailure:
+        status: [400]
+        description: parameter_missing on param query
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: error.type == "invalid_request_error" && error.code == "parameter_missing" && error.param == "query"
+          - type: fieldAbsent
+            path: error.decline_code
+
+    - id: charges
+      node: searchCharges
+      dependsOn: [noQuery]
+      description: Charges this package refunded, found by metadata and a boolean
+      values:
+        query: "metadata['source']:'aat-stripe' AND refunded:'true'"
+        limit: 5
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: count >= 1
+
+    - id: chargeBadField
+      node: searchCharges
+      dependsOn: [charges]
+      isGoal: true
+      description: Search charges by a field they can't be searched by
+      values:
+        query: "emial:'x'"
+      expectFailure:
+        status: [400]
+        description: an unsupported search field
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: error.type == "invalid_request_error"
+          - type: fieldAbsent
+            path: error.code
+          - type: fieldAbsent
+            path: error.param
+          - type: fieldAbsent
+            path: error.decline_code

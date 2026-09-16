@@ -1,0 +1,53 @@
+# A payment out of a customer's cash balance, the money they send by bank transfer. The test helper pretends the
+# transfer arrived, and the payment takes what it needs. The reconciliation slot chooses how: automatically as the money
+# arrives, or by applying the balance by hand. Either way the balance ends at zero, which is what lets the customer be
+# deleted. The bank details a customer would pay into are read in drift/funding-instructions.yaml instead, since the
+# response they come back in doesn't match Stripe's own spec.
+intent:
+  goal: cashBalance
+  description: A customer pays by bank transfer, reconciled the way the slot chooses
+
+execution:
+  steps:
+    - id: balance
+      node: getBalance
+      description: The balance, in test mode, before anything is created
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: livemode == false
+
+    - id: customer
+      node: createCustomer
+      dependsOn: [balance]
+      description: The paying customer
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: livemode == false && source == "aat-stripe"
+
+    - slot: reconciliation
+      dependsOn: [customer]
+
+    - id: transactions
+      node: listCashBalanceTransactions
+      dependsOn: [reconciliation]
+      description: What arrived, and what the payment took
+      values:
+        customerId: {from: customer.customerId}
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: count >= 2 && latestType == "applied_to_payment" && latestEndingBalance == 0 && lastId == "{{fund.cashBalanceTransactionId}}"
+
+    - id: cashBalance
+      node: getCashBalance
+      dependsOn: [transactions]
+      isGoal: true
+      description: The cash balance, spent to nothing, so the customer can be deleted
+      values:
+        customerId: {from: customer.customerId}
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: livemode == false && availableUsd == 0

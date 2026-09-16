@@ -714,6 +714,14 @@ nodes:
         type: string
         optional: true
         description: on_session or off_session, to save the payment method for later
+      - name: confirmationToken
+        type: string
+        optional: true
+        description: A ctoken_ ID, which carries the payment method instead of paymentMethod
+      - name: cvcToken
+        type: string
+        optional: true
+        description: A cvctok_ ID, the CVC collected again for a saved card
       - name: requestIncrementalAuthorization
         type: string
         optional: true
@@ -2262,6 +2270,1222 @@ nodes:
         type: string
         description: The newest attempt's status; "" with none
 
+  # --- ACH debits ------------------------------------------------------------------------------
+
+  createAchPaymentMethod:
+    description: >-
+      Create a us_bank_account PaymentMethod from a routing and account number (POST
+      /v1/payment_methods, 200). Stripe's test routing number is 110000000, and the account number
+      chooses what the debit does later: 000123456789 succeeds, 000222222227 fails for insufficient
+      funds, and 000111111113 for a closed account. The bank is "STRIPE TEST BANK", and the account
+      is a checking account on the ach network.
+    adapter: createAchPaymentMethod
+    tags: [payment-methods, ach]
+    oas:
+      operationId: PostPaymentMethods
+    inputs:
+      - name: routingNumber
+        type: string
+        default: "110000000"
+      - name: accountNumber
+        type: string
+        default: "000123456789"
+      - name: accountHolderType
+        type: string
+        default: individual
+      - name: billingName
+        type: string
+        default: AAT Stripe
+      - name: billingEmail
+        type: string
+        optional: true
+      - name: idempotencyKey
+        type: string
+        optional: true
+        default: "{{uuid}}"
+    outputs:
+      - name: paymentMethodId
+        type: string
+        display: PaymentMethod
+      - name: type
+        type: string
+      - name: livemode
+        type: boolean
+      - name: customerId
+        type: string
+      - name: bankName
+        type: string
+      - name: last4
+        type: string
+      - name: accountHolderType
+        type: string
+      - name: accountType
+        type: string
+      - name: preferredNetwork
+        type: string
+      - name: billingName
+        type: string
+      - name: source
+        type: string
+    errorDetection:
+      - path: livemode
+        rule: equals
+        value: true
+
+  createAchPaymentIntent:
+    description: >-
+      Charge a US bank account (POST /v1/payment_intents, 200) with payment_method_types
+      us_bank_account. It needs mandate acceptance: without mandate_data the create is 400 and still
+      leaves a PaymentIntent in requires_confirmation. A bank account given by its numbers has to be
+      verified first, so the PaymentIntent waits in requires_action with a verify_with_microdeposits
+      next action, whose microdeposit_type on this account is descriptor_code. Verified, it goes to
+      processing and reaches succeeded in about 20 seconds; a failing test account ends
+      requires_payment_method with the reason as last_payment_error.
+    adapter: createAchPaymentIntent
+    tags: [payments, ach]
+    oas:
+      operationId: PostPaymentIntents
+    inputs: &achIntentInputs
+      - name: amount
+        type: integer
+        default: 1500
+      - name: currency
+        type: string
+        default: usd
+      - name: customerId
+        type: string
+        optional: true
+        default:
+          from: createCustomer.customerId
+      - name: paymentMethod
+        type: string
+        optional: true
+        default:
+          from: createAchPaymentMethod.paymentMethodId
+      - name: confirm
+        type: boolean
+        optional: true
+        default: true
+      - name: offSession
+        type: boolean
+        optional: true
+      - name: verificationMethod
+        type: string
+        optional: true
+        description: automatic (the default) or microdeposits
+      - name: acceptanceType
+        type: string
+        optional: true
+        default: online
+        description: How the customer accepted the mandate; {} sends none, which Stripe refuses
+      - name: acceptanceIp
+        type: string
+        optional: true
+        default: 203.0.113.10
+      - name: acceptanceUserAgent
+        type: string
+        optional: true
+        default: aat-stripe
+      - name: idempotencyKey
+        type: string
+        optional: true
+        default: "{{uuid}}"
+    outputs: &achIntentOutputs
+      - name: paymentIntentId
+        type: string
+        display: PaymentIntent
+      - name: status
+        type: string
+        display: Status
+      - name: amount
+        type: integer
+      - name: currency
+        type: string
+      - name: amountReceived
+        type: integer
+      - name: livemode
+        type: boolean
+      - name: customerId
+        type: string
+      - name: paymentMethodId
+        type: string
+      - name: latestChargeId
+        type: string
+      - name: chargeStatus
+        type: string
+      - name: mandateId
+        type: string
+        description: The mandate the debit used; "" before the charge exists
+      - name: nextActionType
+        type: string
+      - name: microdepositType
+        type: string
+        description: descriptor_code or amounts, the way the deposits are verified
+      - name: lastErrorType
+        type: string
+      - name: lastErrorCode
+        type: string
+      - name: lastDeclineCode
+        type: string
+      - name: chargeFailureCode
+        type: string
+      - name: source
+        type: string
+    errorDetection:
+      - path: livemode
+        rule: equals
+        value: true
+    cleanup:
+      node: getPaymentIntentForCleanup
+      releasedBy: [cancelPaymentIntent]
+
+  verifyPaymentIntentMicrodeposits:
+    description: >-
+      Verify the microdeposits of an ACH PaymentIntent (POST
+      /v1/payment_intents/{intent}/verify_microdeposits, 200), which moves it from requires_action to
+      processing. In test mode the descriptor code is SM11AA and the amounts are 32 and 45. A wrong
+      code is 400 payment_method_microdeposit_verification_descriptor_code_mismatch, one amount is
+      400 payment_method_microdeposit_verification_amounts_invalid on param amounts, and verifying a
+      PaymentIntent that isn't waiting is 400 payment_intent_unexpected_state.
+    adapter: verifyPaymentIntentMicrodeposits
+    tags: [payments, ach]
+    oas:
+      operationId: PostPaymentIntentsIntentVerifyMicrodeposits
+    inputs:
+      - name: paymentIntentId
+        type: string
+        default:
+          from: createAchPaymentIntent.paymentIntentId
+      - name: descriptorCode
+        type: string
+        optional: true
+        default: SM11AA
+      - name: amounts
+        type: integer[]
+        optional: true
+        description: The two deposit amounts, instead of a descriptor code
+    outputs:
+      - name: paymentIntentId
+        type: string
+      - name: status
+        type: string
+        display: Status
+      - name: nextActionType
+        type: string
+      - name: amountReceived
+        type: integer
+      - name: lastErrorCode
+        type: string
+
+  createAchSetupIntent:
+    description: >-
+      Save a US bank account for later debits (POST /v1/setup_intents, 200) with
+      payment_method_types us_bank_account and mandate acceptance. The mandate is recorded as the
+      SetupIntent is created, and it waits in requires_action for microdeposit verification; verified,
+      it succeeds with that mandate now multi_use and active, and the PaymentMethod is attached to the
+      customer. A later off-session PaymentIntent on that
+      PaymentMethod reuses the same mandate.
+    adapter: createAchSetupIntent
+    tags: [setup-intents, ach]
+    oas:
+      operationId: PostSetupIntents
+    inputs:
+      - name: customerId
+        type: string
+        default:
+          from: createCustomer.customerId
+      - name: paymentMethod
+        type: string
+        optional: true
+        default:
+          from: createAchPaymentMethod.paymentMethodId
+      - name: confirm
+        type: boolean
+        optional: true
+        default: true
+      - name: usage
+        type: string
+        optional: true
+      - name: acceptanceType
+        type: string
+        optional: true
+        default: online
+      - name: acceptanceIp
+        type: string
+        optional: true
+        default: 203.0.113.10
+      - name: acceptanceUserAgent
+        type: string
+        optional: true
+        default: aat-stripe
+      - name: idempotencyKey
+        type: string
+        optional: true
+        default: "{{uuid}}"
+    outputs:
+      - name: setupIntentId
+        type: string
+        display: SetupIntent
+      - name: status
+        type: string
+        display: Status
+      - name: usage
+        type: string
+      - name: livemode
+        type: boolean
+      - name: customerId
+        type: string
+      - name: paymentMethodId
+        type: string
+      - name: mandateId
+        type: string
+      - name: latestAttemptId
+        type: string
+      - name: nextActionType
+        type: string
+      - name: microdepositType
+        type: string
+      - name: lastSetupErrorCode
+        type: string
+      - name: source
+        type: string
+    errorDetection:
+      - path: livemode
+        rule: equals
+        value: true
+    cleanup:
+      node: getSetupIntentForCleanup
+      releasedBy: [cancelSetupIntent]
+
+  verifySetupIntentMicrodeposits:
+    description: >-
+      Verify the microdeposits of an ACH SetupIntent (POST
+      /v1/setup_intents/{intent}/verify_microdeposits, 200), which succeeds it and records its
+      mandate. Verifying one that already succeeded is 400 intent_invalid_state, where a
+      PaymentIntent says payment_intent_unexpected_state.
+    adapter: verifySetupIntentMicrodeposits
+    tags: [setup-intents, ach]
+    oas:
+      operationId: PostSetupIntentsIntentVerifyMicrodeposits
+    inputs:
+      - name: setupIntentId
+        type: string
+        default:
+          from: createAchSetupIntent.setupIntentId
+      - name: descriptorCode
+        type: string
+        optional: true
+        default: SM11AA
+      - name: amounts
+        type: integer[]
+        optional: true
+    outputs:
+      - name: setupIntentId
+        type: string
+      - name: status
+        type: string
+        display: Status
+      - name: mandateId
+        type: string
+        display: Mandate
+      - name: paymentMethodId
+        type: string
+      - name: nextActionType
+        type: string
+      - name: lastSetupErrorCode
+        type: string
+
+  getMandate:
+    description: >-
+      Read a mandate (GET /v1/mandates/{mandate}, 200), the customer's authorization for a debit. A
+      SetupIntent's is multi_use and active; a single payment's is single_use and inactive once it is
+      used. It records how the customer accepted it, with the IP address and user agent sent as
+      mandate_data. An unknown mandate is 404 resource_missing on param mandate.
+    adapter: getMandate
+    tags: [ach, sepa]
+    oas:
+      operationId: GetMandatesMandate
+    inputs:
+      - name: mandateId
+        type: string
+        default:
+          from: verifySetupIntentMicrodeposits.mandateId
+    outputs:
+      - name: mandateId
+        type: string
+        display: Mandate
+      - name: type
+        type: string
+        description: multi_use or single_use
+      - name: status
+        type: string
+        description: active, inactive, or pending
+      - name: livemode
+        type: boolean
+      - name: paymentMethodId
+        type: string
+      - name: paymentMethodType
+        type: string
+      - name: acceptanceType
+        type: string
+      - name: acceptanceIp
+        type: string
+      - name: acceptanceUserAgent
+        type: string
+      - name: sepaReferenceSet
+        type: string
+        description: A SEPA mandate's reference; "" for other types
+
+  # --- SEPA Direct Debit -----------------------------------------------------------------------
+
+  createSepaPaymentMethod:
+    description: >-
+      Create a sepa_debit PaymentMethod from an IBAN (POST /v1/payment_methods, 200). Stripe's test
+      IBAN DE89370400440532013000 succeeds, and DE62370400440532013001 fails after the charge is
+      made. The country and bank code come from the IBAN. A PaymentMethod used once without a
+      customer can't be attached later.
+    adapter: createSepaPaymentMethod
+    tags: [payment-methods, sepa]
+    oas:
+      operationId: PostPaymentMethods
+    inputs:
+      - name: iban
+        type: string
+        default: DE89370400440532013000
+      - name: billingName
+        type: string
+        default: AAT Stripe
+      - name: billingEmail
+        type: string
+        default: aat-stripe@example.com
+      - name: idempotencyKey
+        type: string
+        optional: true
+        default: "{{uuid}}"
+    outputs:
+      - name: paymentMethodId
+        type: string
+        display: PaymentMethod
+      - name: type
+        type: string
+      - name: livemode
+        type: boolean
+      - name: customerId
+        type: string
+      - name: country
+        type: string
+      - name: last4
+        type: string
+      - name: bankCode
+        type: string
+      - name: billingName
+        type: string
+      - name: source
+        type: string
+    errorDetection:
+      - path: livemode
+        rule: equals
+        value: true
+
+  createSepaPaymentIntent:
+    description: >-
+      Charge a SEPA bank account in euros (POST /v1/payment_intents, 200), with the IBAN sent as
+      payment_method_data and mandate acceptance. Confirmed, it goes to processing at once and
+      reaches succeeded in about 15 seconds; the failing test IBAN ends requires_payment_method with
+      last_payment_error payment_intent_payment_attempt_failed, whose charge failed with
+      incorrect_account_holder_name.
+    adapter: createSepaPaymentIntent
+    tags: [payments, sepa]
+    oas:
+      operationId: PostPaymentIntents
+    inputs:
+      - name: amount
+        type: integer
+        default: 1000
+      - name: currency
+        type: string
+        default: eur
+      - name: customerId
+        type: string
+        optional: true
+        default:
+          from: createCustomer.customerId
+      - name: iban
+        type: string
+        default: DE89370400440532013000
+      - name: billingName
+        type: string
+        default: AAT Stripe
+      - name: billingEmail
+        type: string
+        default: aat-stripe@example.com
+      - name: confirm
+        type: boolean
+        optional: true
+        default: true
+      - name: acceptanceType
+        type: string
+        optional: true
+        default: online
+      - name: acceptanceIp
+        type: string
+        optional: true
+        default: 203.0.113.10
+      - name: acceptanceUserAgent
+        type: string
+        optional: true
+        default: aat-stripe
+      - name: idempotencyKey
+        type: string
+        optional: true
+        default: "{{uuid}}"
+    outputs:
+      - name: paymentIntentId
+        type: string
+        display: PaymentIntent
+      - name: status
+        type: string
+        display: Status
+      - name: amount
+        type: integer
+      - name: currency
+        type: string
+      - name: amountReceived
+        type: integer
+      - name: livemode
+        type: boolean
+      - name: customerId
+        type: string
+      - name: paymentMethodId
+        type: string
+      - name: latestChargeId
+        type: string
+      - name: chargeStatus
+        type: string
+      - name: mandateId
+        type: string
+      - name: lastErrorType
+        type: string
+      - name: lastErrorCode
+        type: string
+      - name: lastDeclineCode
+        type: string
+      - name: chargeFailureCode
+        type: string
+      - name: source
+        type: string
+    errorDetection:
+      - path: livemode
+        rule: equals
+        value: true
+    cleanup:
+      node: getPaymentIntentForCleanup
+      releasedBy: [cancelPaymentIntent]
+
+  # --- Cash balance and bank transfers ----------------------------------------------------------
+
+  getCashBalance:
+    description: >-
+      Read a customer's cash balance (GET /v1/customers/{customer}/cash_balance, 200): what they have
+      paid in by bank transfer, per currency, and how it is applied. reconciliation_mode is automatic
+      by default, when a payment takes what it needs as soon as the money arrives, or manual, when
+      apply_customer_balance does it. A customer with a positive cash balance can't be deleted.
+    adapter: getCashBalance
+    tags: [customers, cash-balance]
+    oas:
+      operationId: GetCustomersCustomerCashBalance
+    inputs:
+      - name: customerId
+        type: string
+        default:
+          from: createCustomer.customerId
+    outputs: &cashBalanceOutputs
+      - name: customerId
+        type: string
+      - name: livemode
+        type: boolean
+      - name: reconciliationMode
+        type: string
+        display: Reconciliation
+      - name: usingMerchantDefault
+        type: boolean
+      - name: availableUsd
+        type: integer
+        display: USD available
+      - name: availableEur
+        type: integer
+      - name: currencyCount
+        type: integer
+
+  updateCashBalance:
+    description: >-
+      Set how a customer's cash balance is applied (POST /v1/customers/{customer}/cash_balance, 200):
+      reconciliation_mode automatic, manual, or merchant_default. Another value is 400 on param
+      settings[reconciliation_mode], with no code.
+    adapter: updateCashBalance
+    tags: [customers, cash-balance]
+    oas:
+      operationId: PostCustomersCustomerCashBalance
+    inputs:
+      - name: customerId
+        type: string
+        default:
+          from: createCustomer.customerId
+      - name: reconciliationMode
+        type: string
+        default: manual
+    outputs:
+      - name: customerId
+        type: string
+      - name: reconciliationMode
+        type: string
+        display: Reconciliation
+      - name: usingMerchantDefault
+        type: boolean
+      - name: availableUsd
+        type: integer
+
+  createFundingInstructions:
+    description: >-
+      Ask for the bank details a customer pays into (POST
+      /v1/customers/{customer}/funding_instructions, 200). A us_bank_transfer gives two financial
+      addresses, aba and swift, and the same customer gets the same details again. A eu_bank_transfer
+      needs its country, and euros.
+    adapter: createFundingInstructions
+    tags: [customers, cash-balance]
+    oas:
+      operationId: PostCustomersCustomerFundingInstructions
+    inputs:
+      - name: customerId
+        type: string
+        default:
+          from: createCustomer.customerId
+      - name: fundingType
+        type: string
+        default: bank_transfer
+      - name: currency
+        type: string
+        default: usd
+      - name: bankTransferType
+        type: string
+        default: us_bank_transfer
+        description: us_bank_transfer, eu_bank_transfer, gb_bank_transfer, jp_bank_transfer, or mx_bank_transfer
+      - name: euCountry
+        type: string
+        optional: true
+        description: The country of a eu_bank_transfer, such as DE
+      - name: idempotencyKey
+        type: string
+        optional: true
+        default: "{{uuid}}"
+    outputs:
+      - name: currency
+        type: string
+      - name: fundingType
+        type: string
+      - name: livemode
+        type: boolean
+      - name: bankTransferType
+        type: string
+      - name: addressCount
+        type: integer
+        display: Bank addresses
+      - name: addressTypes
+        type: string[]
+      - name: firstAddressType
+        type: string
+
+  fundCashBalance:
+    description: >-
+      Pretend money arrived by bank transfer (POST
+      /v1/test_helpers/customers/{customer}/fund_cash_balance, 200), a test-mode helper. It records a
+      funded cash balance transaction with the balance after it, and the reference the sender gave.
+      An amount below 1 is 400 parameter_invalid_integer on param amount.
+    adapter: fundCashBalance
+    tags: [customers, cash-balance, test-helpers]
+    oas:
+      operationId: PostTestHelpersCustomersCustomerFundCashBalance
+    inputs:
+      - name: customerId
+        type: string
+        default:
+          from: createCustomer.customerId
+      - name: amount
+        type: integer
+        default: 5000
+      - name: currency
+        type: string
+        default: usd
+      - name: reference
+        type: string
+        optional: true
+        default: aat-stripe
+      - name: idempotencyKey
+        type: string
+        optional: true
+        default: "{{uuid}}"
+    outputs:
+      - name: cashBalanceTransactionId
+        type: string
+        display: Cash balance transaction
+      - name: type
+        type: string
+        description: funded, applied_to_payment, refunded_from_payment, and others
+      - name: netAmount
+        type: integer
+      - name: endingBalance
+        type: integer
+        display: Balance after
+      - name: currency
+        type: string
+      - name: customerId
+        type: string
+      - name: livemode
+        type: boolean
+      - name: bankTransferType
+        type: string
+      - name: reference
+        type: string
+
+  listCashBalanceTransactions:
+    description: >-
+      Page through a customer's cash balance transactions (GET
+      /v1/customers/{customer}/cash_balance_transactions, 200), newest first: what arrived, and what
+      each payment took.
+    adapter: listCashBalanceTransactions
+    tags: [customers, cash-balance, pagination]
+    oas:
+      operationId: GetCustomersCustomerCashBalanceTransactions
+    inputs:
+      - name: customerId
+        type: string
+        default:
+          from: createCustomer.customerId
+      - name: limit
+        type: integer
+        default: 10
+        constraints:
+          min: 1
+          max: 100
+      - name: startingAfter
+        type: string
+        optional: true
+    outputs:
+      - name: transactions
+        type: cashBalanceTransaction[]
+        elementFields:
+          - name: id
+            type: string
+          - name: type
+            type: string
+          - name: netAmount
+            type: integer
+          - name: endingBalance
+            type: integer
+          - name: currency
+            type: string
+      - name: count
+        type: integer
+        display: Transactions
+      - name: hasMore
+        type: boolean
+      - name: lastId
+        type: string
+      - name: latestType
+        type: string
+      - name: latestEndingBalance
+        type: integer
+
+  getCashBalanceTransaction:
+    description: Read one of a customer's cash balance transactions (GET /v1/customers/{customer}/cash_balance_transactions/{transaction}, 200).
+    adapter: getCashBalanceTransaction
+    tags: [customers, cash-balance]
+    oas:
+      operationId: GetCustomersCustomerCashBalanceTransactionsTransaction
+    inputs:
+      - name: customerId
+        type: string
+        default:
+          from: createCustomer.customerId
+      - name: cashBalanceTransactionId
+        type: string
+        default:
+          from: fundCashBalance.cashBalanceTransactionId
+    outputs:
+      - name: cashBalanceTransactionId
+        type: string
+      - name: type
+        type: string
+      - name: netAmount
+        type: integer
+      - name: endingBalance
+        type: integer
+      - name: currency
+        type: string
+      - name: customerId
+        type: string
+      - name: reference
+        type: string
+      - name: appliedPaymentIntentId
+        type: string
+
+  createBankTransferPaymentIntent:
+    description: >-
+      Take a payment from a customer's cash balance (POST /v1/payment_intents, 200) with
+      payment_method_types customer_balance. With automatic reconciliation and enough money it
+      succeeds at once; with less it takes what there is and waits in requires_action with the
+      amount_remaining, then succeeds when the rest arrives. With manual reconciliation it waits for
+      apply_customer_balance instead.
+    adapter: createBankTransferPaymentIntent
+    tags: [payments, cash-balance]
+    oas:
+      operationId: PostPaymentIntents
+    inputs:
+      - name: amount
+        type: integer
+        default: 2000
+      - name: currency
+        type: string
+        default: usd
+      - name: customerId
+        type: string
+        default:
+          from: createCustomer.customerId
+      - name: bankTransferType
+        type: string
+        default: us_bank_transfer
+      - name: euCountry
+        type: string
+        optional: true
+      - name: confirm
+        type: boolean
+        optional: true
+        default: true
+      - name: idempotencyKey
+        type: string
+        optional: true
+        default: "{{uuid}}"
+    outputs:
+      - name: paymentIntentId
+        type: string
+        display: PaymentIntent
+      - name: status
+        type: string
+        display: Status
+      - name: amount
+        type: integer
+      - name: currency
+        type: string
+      - name: amountReceived
+        type: integer
+      - name: livemode
+        type: boolean
+      - name: customerId
+        type: string
+      - name: latestChargeId
+        type: string
+      - name: nextActionType
+        type: string
+      - name: amountRemaining
+        type: integer
+        display: Still to pay
+      - name: source
+        type: string
+    errorDetection:
+      - path: livemode
+        rule: equals
+        value: true
+    cleanup:
+      node: getPaymentIntentForCleanup
+      releasedBy: [cancelPaymentIntent]
+
+  applyCustomerBalance:
+    description: >-
+      Put a customer's cash balance toward a payment waiting for it (POST
+      /v1/payment_intents/{intent}/apply_customer_balance, 200), which manual reconciliation needs.
+      Part of the amount leaves the rest as amount_remaining; the rest succeeds it. More than remains
+      is 400 with no code, as is a currency that isn't the payment's, and applying to a succeeded
+      payment is 400 payment_intent_unexpected_state.
+    adapter: applyCustomerBalance
+    tags: [payments, cash-balance]
+    oas:
+      operationId: PostPaymentIntentsIntentApplyCustomerBalance
+    inputs:
+      - name: paymentIntentId
+        type: string
+        default:
+          from: createBankTransferPaymentIntent.paymentIntentId
+      - name: amount
+        type: integer
+        optional: true
+        description: How much to apply; all that is needed when left out
+      - name: currency
+        type: string
+        optional: true
+      - name: idempotencyKey
+        type: string
+        optional: true
+        default: "{{uuid}}"
+    outputs:
+      - name: paymentIntentId
+        type: string
+      - name: status
+        type: string
+        display: Status
+      - name: amount
+        type: integer
+      - name: amountReceived
+        type: integer
+      - name: nextActionType
+        type: string
+      - name: amountRemaining
+        type: integer
+        display: Still to pay
+
+  # --- Tokens and confirmation tokens -----------------------------------------------------------
+
+  createToken:
+    description: >-
+      Create a single-use token (POST /v1/tokens, 200): a bank account (btok_), a PII number (pii_),
+      or a CVC collected again (cvctok_). Exactly one kind per request: none is 400
+      parameter_missing, and two at once is 400 with no code. A raw card number is refused as it is
+      on PaymentMethods (402, "generally unsafe"). A token is used once, and reusing it is 400
+      token_already_used.
+    adapter: createToken
+    tags: [tokens]
+    oas:
+      operationId: PostTokens
+    inputs:
+      - name: bankCountry
+        type: string
+        optional: true
+      - name: bankCurrency
+        type: string
+        optional: true
+      - name: routingNumber
+        type: string
+        optional: true
+      - name: accountNumber
+        type: string
+        optional: true
+      - name: accountHolderName
+        type: string
+        optional: true
+      - name: accountHolderType
+        type: string
+        optional: true
+      - name: idNumber
+        type: string
+        optional: true
+        description: A PII number, such as a test SSN
+      - name: cvc
+        type: string
+        optional: true
+        description: A card's CVC, for a cvc_update token
+      - name: cardNumber
+        type: string
+        optional: true
+        description: A raw card number, which Stripe refuses
+      - name: cardExpMonth
+        type: string
+        optional: true
+      - name: cardExpYear
+        type: string
+        optional: true
+      - name: cardCvc
+        type: string
+        optional: true
+      - name: idempotencyKey
+        type: string
+        optional: true
+        default: "{{uuid}}"
+    outputs: &tokenOutputs
+      - name: tokenId
+        type: string
+        display: Token
+      - name: type
+        type: string
+        description: bank_account, pii, cvc_update, card, account, or person
+      - name: used
+        type: boolean
+      - name: livemode
+        type: boolean
+      - name: clientIpSet
+        type: string
+      - name: bankLast4
+        type: string
+      - name: bankStatus
+        type: string
+      - name: bankName
+        type: string
+      - name: bankCountry
+        type: string
+      - name: cardBrand
+        type: string
+    errorDetection:
+      - path: livemode
+        rule: equals
+        value: true
+
+  getToken:
+    description: >-
+      Read a token by its ID (GET /v1/tokens/{token}, 200), which says whether it has been used. An
+      unknown token is 400 resource_missing on param token, not 404. Stripe's test card tokens, such
+      as tok_visa, read back as cards.
+    adapter: getToken
+    tags: [tokens]
+    oas:
+      operationId: GetTokensToken
+    inputs:
+      - name: tokenId
+        type: string
+        default:
+          from: createToken.tokenId
+    outputs:
+      - name: tokenId
+        type: string
+      - name: type
+        type: string
+      - name: used
+        type: boolean
+        display: Used
+      - name: livemode
+        type: boolean
+      - name: bankLast4
+        type: string
+      - name: cardBrand
+        type: string
+
+  createConfirmationToken:
+    description: >-
+      Create a ConfirmationToken (POST /v1/test_helpers/confirmation_tokens, 200), the test-mode
+      stand-in for what Stripe.js collects: a payment method, what it may be saved for, and a return
+      URL, gathered into one ctoken_ that confirms a PaymentIntent. It lasts 12 hours and previews
+      the payment method. Confirming with it a second time is 400
+      payment_intent_confirmation_token_invalid.
+    adapter: createConfirmationToken
+    tags: [payments, test-helpers]
+    oas:
+      operationId: PostTestHelpersConfirmationTokens
+    inputs:
+      - name: paymentMethod
+        type: string
+        optional: true
+        default: pm_card_visa
+      - name: setupFutureUsage
+        type: string
+        optional: true
+        description: on_session or off_session; the PaymentIntent must ask for the same
+      - name: returnUrl
+        type: string
+        optional: true
+      - name: idempotencyKey
+        type: string
+        optional: true
+        default: "{{uuid}}"
+    outputs: &confirmationTokenOutputs
+      - name: confirmationTokenId
+        type: string
+        display: ConfirmationToken
+      - name: livemode
+        type: boolean
+      - name: created
+        type: integer
+      - name: expiresAt
+        type: integer
+      - name: setupFutureUsage
+        type: string
+      - name: previewType
+        type: string
+      - name: previewBrand
+        type: string
+      - name: previewLast4
+        type: string
+      - name: paymentIntentId
+        type: string
+        description: The PaymentIntent it confirmed; "" until it is used
+      - name: setupIntentId
+        type: string
+    errorDetection:
+      - path: livemode
+        rule: equals
+        value: true
+
+  getConfirmationToken:
+    description: >-
+      Read a ConfirmationToken (GET /v1/confirmation_tokens/{confirmation_token}, 200), which names
+      the PaymentIntent it confirmed once it is used. An unknown one is 404 resource_missing on param
+      confirmation_token.
+    adapter: getConfirmationToken
+    tags: [payments]
+    oas:
+      operationId: GetConfirmationTokensConfirmationToken
+    inputs:
+      - name: confirmationTokenId
+        type: string
+        default:
+          from: createConfirmationToken.confirmationTokenId
+    outputs:
+      - name: confirmationTokenId
+        type: string
+      - name: livemode
+        type: boolean
+      - name: created
+        type: integer
+      - name: expiresAt
+        type: integer
+      - name: previewType
+        type: string
+      - name: previewBrand
+        type: string
+      - name: setupFutureUsage
+        type: string
+      - name: paymentIntentId
+        type: string
+      - name: setupIntentId
+        type: string
+
+  # --- Search -----------------------------------------------------------------------------------
+
+  searchPaymentIntents:
+    description: >-
+      Search PaymentIntents (GET /v1/payment_intents/search, 200) by customer, status, metadata, or
+      amount, with comparisons such as amount>1500. Like every Stripe search it lags: new
+      PaymentIntents took about 30 seconds to appear, while the list has them at once. A field that
+      can't be searched is 400 with no code, and no query at all is 400 parameter_missing on param
+      query.
+    adapter: searchPaymentIntents
+    tags: [payments, search]
+    oas:
+      operationId: GetPaymentIntentsSearch
+    inputs:
+      - name: query
+        type: string
+        optional: true
+        description: A search query; {} sends none, which Stripe refuses
+      - name: limit
+        type: integer
+        default: 20
+        constraints:
+          min: 1
+          max: 100
+      - name: page
+        type: string
+        optional: true
+    outputs:
+      - name: paymentIntents
+        type: paymentIntent[]
+        elementFields:
+          - name: id
+            type: string
+          - name: status
+            type: string
+          - name: amount
+            type: integer
+      - name: count
+        type: integer
+        display: Found
+      - name: hasMore
+        type: boolean
+      - name: nextPage
+        type: string
+      - name: firstId
+        type: string
+      - name: statuses
+        type: string[]
+
+  searchCharges:
+    description: >-
+      Search charges (GET /v1/charges/search, 200) by customer, status, refunded, metadata, or
+      amount. Charges were in the index sooner than PaymentIntents, though a search still lags a
+      list.
+    adapter: searchCharges
+    tags: [payments, search]
+    oas:
+      operationId: GetChargesSearch
+    inputs:
+      - name: query
+        type: string
+      - name: limit
+        type: integer
+        default: 20
+        constraints:
+          min: 1
+          max: 100
+      - name: page
+        type: string
+        optional: true
+    outputs:
+      - name: charges
+        type: charge[]
+        elementFields:
+          - name: id
+            type: string
+          - name: status
+            type: string
+          - name: amount
+            type: integer
+          - name: refunded
+            type: boolean
+      - name: count
+        type: integer
+        display: Found
+      - name: hasMore
+        type: boolean
+      - name: nextPage
+        type: string
+      - name: firstId
+        type: string
+
+  # --- Refunds that wait on the customer --------------------------------------------------------
+
+  cancelRefund:
+    description: >-
+      Cancel a refund that is waiting on the customer (POST /v1/refunds/{refund}/cancel, 200), which
+      only a refund in requires_action allows. A card refund, which succeeds at once, is 400 with no
+      code ("Canceling this refund is unsupported"). Refunds of bank transfer payments, the ones that
+      can wait, are gated on this account.
+    adapter: cancelRefund
+    tags: [refunds]
+    oas:
+      operationId: PostRefundsRefundCancel
+    inputs:
+      - name: refundId
+        type: string
+        default:
+          from: createRefund.refundId
+    outputs:
+      - name: refundId
+        type: string
+      - name: status
+        type: string
+        display: Status
+      - name: failureReason
+        type: string
+
+  expireRefund:
+    description: >-
+      Expire a refund that is waiting on the customer (POST
+      /v1/test_helpers/refunds/{refund}/expire, 200), a test-mode helper for a refund in
+      requires_action. A card refund is 400 with no code, pointing at the charge refund endpoint.
+    adapter: expireRefund
+    tags: [refunds, test-helpers]
+    oas:
+      operationId: PostTestHelpersRefundsRefundExpire
+    inputs:
+      - name: refundId
+        type: string
+        default:
+          from: createRefund.refundId
+    outputs:
+      - name: refundId
+        type: string
+      - name: status
+        type: string
+        display: Status
+      - name: failureReason
+        type: string
+
 workflows:
   - name: Card Payment
     description: A new customer pays by card with a PaymentIntent, captured the way the capture slot chooses, and the payment is read back with its charge
@@ -2345,3 +3569,46 @@ workflows:
     description: A customer saves a card with a SetupIntent for off-session use, and a PaymentIntent later charges the saved card with no customer present
     template: workflows/saved-card.yaml
     selectionHint: Saving a card for later and charging it off session, with layers for the currency and the amount
+
+  - name: ACH Debit
+    description: A US bank account is verified with microdeposits and debited, and the outcome slot chooses the test account that decides what the bank does
+    template: workflows/ach-debit.yaml
+    slots:
+      - name: outcome
+        options: [Bank Account Pays, Bank Account Without Funds, Closed Bank Account]
+        default: Bank Account Pays
+    selectionHint: Paying by US bank account (ACH), which settles about 20 seconds after it is verified
+
+  - name: Bank Account Pays
+    kind: slot
+    description: A bank account whose debit goes through, settling about 20 seconds after verification
+    template: workflows/slots/ach-succeeds.yaml
+
+  - name: Bank Account Without Funds
+    kind: slot
+    description: A bank account that fails the debit for insufficient funds
+    template: workflows/slots/ach-insufficient-funds.yaml
+
+  - name: Closed Bank Account
+    kind: slot
+    description: A bank account that is closed, which fails the debit
+    template: workflows/slots/ach-account-closed.yaml
+
+  - name: Bank Transfer
+    description: A customer pays out of the cash balance they funded by bank transfer, reconciled the way the reconciliation slot chooses
+    template: workflows/bank-transfer.yaml
+    slots:
+      - name: reconciliation
+        options: [Automatic Reconciliation, Manual Reconciliation]
+        default: Automatic Reconciliation
+    selectionHint: Paying by bank transfer into a customer's cash balance
+
+  - name: Automatic Reconciliation
+    kind: slot
+    description: The payment takes what it needs from the cash balance as the transfer arrives
+    template: workflows/slots/automatic-reconciliation.yaml
+
+  - name: Manual Reconciliation
+    kind: slot
+    description: The payment waits until apply_customer_balance puts the balance toward it, here in two parts
+    template: workflows/slots/manual-reconciliation.yaml

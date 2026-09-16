@@ -1,0 +1,49 @@
+execution:
+  steps:
+    - id: bankAccount
+      node: createAchPaymentMethod
+      description: A bank account without the money
+      values:
+        accountNumber: "000222222227"
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: livemode == false && type == "us_bank_account" && bankName == "STRIPE TEST BANK" && accountType == "checking"
+
+    - id: debit
+      node: createAchPaymentIntent
+      description: Charge the bank account, which has to be verified first
+      values:
+        customerId: {from: customer.customerId}
+        paymentMethod: {from: bankAccount.paymentMethodId}
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: >-
+              livemode == false && status == "requires_action" && nextActionType == "verify_with_microdeposits" &&
+              microdepositType == "descriptor_code" && amountReceived == 0
+
+    - id: verify
+      node: verifyPaymentIntentMicrodeposits
+      description: Verify the microdeposits with the test descriptor code
+      values:
+        paymentIntentId: {from: debit.paymentIntentId}
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: status == "processing" && nextActionType == ""
+
+    - id: settle
+      node: getPaymentIntent
+      description: Read the debit until the bank has answered
+      values:
+        paymentIntentId: {from: debit.paymentIntentId}
+      repeat:
+        until: status != "processing"
+        interval: 3s
+        max: 40
+        timeout: 150s
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: status == "requires_payment_method" && amountReceived == 0 && lastErrorCode == "insufficient_funds" && lastDeclineCode == "generic_decline"

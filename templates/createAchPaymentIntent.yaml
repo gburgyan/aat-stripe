@@ -1,4 +1,4 @@
-adapter: createPaymentIntent
+adapter: createAchPaymentIntent
 protocol: http
 
 request:
@@ -11,23 +11,21 @@ request:
     currency: "{{currency}}"
     customer: "{{customerId}}"
     payment_method: "{{paymentMethod}}"
-    confirmation_token: "{{confirmationToken}}"
-    payment_method_types[]: "{{paymentMethodTypes}}"
-    capture_method: "{{captureMethod}}"
+    payment_method_types[]: us_bank_account
     confirm: "{{confirm}}"
-    return_url: "{{returnUrl}}"
-    error_on_requires_action: "{{errorOnRequiresAction}}"
     off_session: "{{offSession}}"
-    setup_future_usage: "{{setupFutureUsage}}"
-    description: "{{description}}"
     payment_method_options:
-      card:
-        request_incremental_authorization: "{{requestIncrementalAuthorization}}"
-        cvc_token: "{{cvcToken}}"
+      us_bank_account:
+        verification_method: "{{verificationMethod}}"
+    mandate_data:
+      customer_acceptance:
+        type: "{{acceptanceType}}"
+        online:
+          ip_address: "{{acceptanceIp}}"
+          user_agent: "{{acceptanceUserAgent}}"
     expand[]: latest_charge
     metadata:
       source: aat-stripe
-      expected_brand: "{{expectedBrand}}"
 
 response:
   extract:
@@ -35,9 +33,7 @@ response:
     status: status
     amount: amount
     currency: currency
-    amountCapturable: amount_capturable
     amountReceived: amount_received
-    captureMethod: capture_method
     livemode: livemode
     customerId:
       path: customer
@@ -48,11 +44,20 @@ response:
     latestChargeId:
       path: latest_charge.id
       default: ""
-    cardBrand:
-      path: latest_charge.payment_method_details.card.brand
+    chargeStatus:
+      path: latest_charge.status
+      default: ""
+    mandateId:
+      path: latest_charge.payment_method_details.us_bank_account.mandate
       default: ""
     nextActionType:
       path: next_action.type
+      default: ""
+    microdepositType:
+      path: next_action.verify_with_microdeposits.microdeposit_type
+      default: ""
+    lastErrorType:
+      path: last_payment_error.type
       default: ""
     lastErrorCode:
       path: last_payment_error.code
@@ -60,11 +65,8 @@ response:
     lastDeclineCode:
       path: last_payment_error.decline_code
       default: ""
-    cancellationReason:
-      path: cancellation_reason
-      default: ""
-    expectedBrand:
-      path: metadata.expected_brand
+    chargeFailureCode:
+      path: latest_charge.failure_code
       default: ""
     source:
       path: metadata.source

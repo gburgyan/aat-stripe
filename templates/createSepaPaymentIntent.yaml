@@ -1,0 +1,69 @@
+adapter: createSepaPaymentIntent
+protocol: http
+
+request:
+  method: POST
+  path: /v1/payment_intents
+  headers:
+    Idempotency-Key: "{{idempotencyKey}}"
+  form:
+    amount: "{{amount}}"
+    currency: "{{currency}}"
+    customer: "{{customerId}}"
+    payment_method_types[]: sepa_debit
+    payment_method_data:
+      type: sepa_debit
+      sepa_debit:
+        iban: "{{iban}}"
+      billing_details:
+        name: "{{billingName}}"
+        email: "{{billingEmail}}"
+    confirm: "{{confirm}}"
+    mandate_data:
+      customer_acceptance:
+        type: "{{acceptanceType}}"
+        online:
+          ip_address: "{{acceptanceIp}}"
+          user_agent: "{{acceptanceUserAgent}}"
+    expand[]: latest_charge
+    metadata:
+      source: aat-stripe
+
+response:
+  extract:
+    paymentIntentId: id
+    status: status
+    amount: amount
+    currency: currency
+    amountReceived: amount_received
+    livemode: livemode
+    customerId:
+      path: customer
+      default: ""
+    paymentMethodId:
+      path: payment_method
+      default: ""
+    latestChargeId:
+      path: latest_charge.id
+      default: ""
+    chargeStatus:
+      path: latest_charge.status
+      default: ""
+    mandateId:
+      path: latest_charge.payment_method_details.sepa_debit.mandate
+      default: ""
+    lastErrorType:
+      path: last_payment_error.type
+      default: ""
+    lastErrorCode:
+      path: last_payment_error.code
+      default: ""
+    lastDeclineCode:
+      path: last_payment_error.decline_code
+      default: ""
+    chargeFailureCode:
+      path: latest_charge.failure_code
+      default: ""
+    source:
+      path: metadata.source
+      default: ""

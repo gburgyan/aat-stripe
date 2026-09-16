@@ -1,0 +1,28 @@
+adapter: fundCashBalance
+protocol: http
+
+request:
+  method: POST
+  path: /v1/test_helpers/customers/{{customerId}}/fund_cash_balance
+  headers:
+    Idempotency-Key: "{{idempotencyKey}}"
+  form:
+    amount: "{{amount}}"
+    currency: "{{currency}}"
+    reference: "{{reference}}"
+
+response:
+  extract:
+    cashBalanceTransactionId: id
+    type: type
+    netAmount: net_amount
+    endingBalance: ending_balance
+    currency: currency
+    customerId: customer
+    livemode: livemode
+    bankTransferType:
+      path: funded.bank_transfer.type
+      default: ""
+    reference:
+      path: funded.bank_transfer.reference
+      default: ""

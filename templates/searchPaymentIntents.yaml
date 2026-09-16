@@ -1,0 +1,26 @@
+adapter: searchPaymentIntents
+protocol: http
+
+request:
+  method: GET
+  path: /v1/payment_intents/search?limit={{limit}}{{?query}}&query={{query}}{{/query}}{{?page}}&page={{page}}{{/page}}
+
+response:
+  extract:
+    paymentIntents:
+      path: data
+      fields:
+        id: id
+        status: status
+        amount: amount
+    count: 'data.#'
+    hasMore: has_more
+    nextPage:
+      path: next_page
+      default: ""
+    firstId:
+      path: data.0.id
+      default: ""
+    statuses:
+      path: data.#.status
+      default: []

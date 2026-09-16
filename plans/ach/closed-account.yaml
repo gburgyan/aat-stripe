@@ -1,0 +1,10 @@
+# An ACH debit on a closed account, refused after the payment is already processing.
+kind: recipe
+metadata:
+  prompt: Pay by a closed bank account
+  graphVersion: "1.0.0"
+selection:
+  workflow: ACH Debit
+  description: Verified, then failed as the account is closed
+  choices:
+    outcome: Closed Bank Account

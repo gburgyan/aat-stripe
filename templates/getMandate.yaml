@@ -1,0 +1,31 @@
+adapter: getMandate
+protocol: http
+
+request:
+  method: GET
+  path: /v1/mandates/{{mandateId}}
+
+response:
+  extract:
+    mandateId: id
+    type: type
+    status: status
+    livemode: livemode
+    paymentMethodId:
+      path: payment_method
+      default: ""
+    paymentMethodType:
+      path: payment_method_details.type
+      default: ""
+    acceptanceType:
+      path: customer_acceptance.type
+      default: ""
+    acceptanceIp:
+      path: customer_acceptance.online.ip_address
+      default: ""
+    acceptanceUserAgent:
+      path: customer_acceptance.online.user_agent
+      default: ""
+    sepaReferenceSet:
+      path: payment_method_details.sepa_debit.reference
+      default: ""

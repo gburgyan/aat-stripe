@@ -1,0 +1,40 @@
+# An ACH debit: a US bank account, given by its routing and account numbers, is verified with microdeposits and then
+# debited. The outcome slot chooses the test account number, which decides what the bank does with the debit. A debit is
+# not instant: it goes through processing, and settles or fails about 20 seconds later in test mode.
+intent:
+  goal: history
+  description: A US bank account is verified with microdeposits and debited, the way the outcome slot chooses
+
+execution:
+  steps:
+    - id: balance
+      node: getBalance
+      description: The balance, in test mode, before anything is created
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: livemode == false
+
+    - id: customer
+      node: createCustomer
+      dependsOn: [balance]
+      description: The customer the bank account belongs to
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: livemode == false && source == "aat-stripe"
+
+    - slot: outcome
+      dependsOn: [customer]
+
+    - id: history
+      node: listPaymentIntents
+      dependsOn: [outcome]
+      isGoal: true
+      description: The customer's payments, all of them this package's and none in live mode
+      values:
+        customerId: {from: customer.customerId}
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: count == 1 && ourCount == 1 && liveCount == 0

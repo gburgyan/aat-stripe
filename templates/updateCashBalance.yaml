@@ -1,0 +1,22 @@
+adapter: updateCashBalance
+protocol: http
+
+request:
+  method: POST
+  path: /v1/customers/{{customerId}}/cash_balance
+  form:
+    settings:
+      reconciliation_mode: "{{reconciliationMode}}"
+
+response:
+  extract:
+    customerId: customer
+    reconciliationMode:
+      path: settings.reconciliation_mode
+      default: ""
+    usingMerchantDefault:
+      path: settings.using_merchant_default
+      default: false
+    availableUsd:
+      path: available.usd
+      default: 0

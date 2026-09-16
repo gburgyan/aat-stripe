@@ -1,0 +1,192 @@
+# Applying a cash balance by hand, and what Stripe refuses. With manual reconciliation a payment waits until the balance
+# is put toward it: more than is left, a currency that isn't the payment's, and a payment that is already paid are all
+# refused, and so is applying a balance to a card payment. The balance is spent to zero at the end.
+intent:
+  goal: balanceEnd
+  description: apply_customer_balance pays a waiting payment, and refuses what doesn't fit
+
+execution:
+  steps:
+    - id: customer
+      node: createCustomer
+      description: A customer tagged metadata[source]=aat-stripe
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: livemode == false && source == "aat-stripe"
+
+    - id: manual
+      node: updateCashBalance
+      dependsOn: [customer]
+      description: Apply the balance by hand rather than as money arrives
+      values:
+        customerId: {from: customer.customerId}
+        reconciliationMode: manual
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: reconciliationMode == "manual" && usingMerchantDefault == false
+
+    - id: fund
+      node: fundCashBalance
+      dependsOn: [manual]
+      description: The customer's transfer arrives
+      values:
+        customerId: {from: customer.customerId}
+        amount: 2000
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: type == "funded" && endingBalance == 2000
+
+    - id: pay
+      node: createBankTransferPaymentIntent
+      dependsOn: [fund]
+      description: A payment, which waits with the balance sitting there
+      values:
+        customerId: {from: customer.customerId}
+        amount: 1000
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: >-
+              status == "requires_action" && nextActionType == "display_bank_transfer_instructions" &&
+              amountRemaining == amount && amountReceived == 0
+
+    - id: tooMuch
+      node: applyCustomerBalance
+      description: Apply more than the payment still needs
+      values:
+        paymentIntentId: {from: pay.paymentIntentId}
+        amount: 999999
+        currency: usd
+      expectFailure:
+        status: [400]
+        description: more than the amount_remaining
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: error.type == "invalid_request_error"
+          - type: fieldAbsent
+            path: error.code
+          - type: fieldAbsent
+            path: error.param
+          - type: fieldAbsent
+            path: error.decline_code
+
+    - id: wrongCurrency
+      node: applyCustomerBalance
+      dependsOn: [tooMuch]
+      description: Apply a currency that isn't the payment's
+      values:
+        paymentIntentId: {from: pay.paymentIntentId}
+        amount: 100
+        currency: eur
+      expectFailure:
+        status: [400]
+        description: the currency must match the PaymentIntent's
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: error.type == "invalid_request_error"
+          - type: fieldAbsent
+            path: error.code
+          - type: fieldAbsent
+            path: error.param
+          - type: fieldAbsent
+            path: error.decline_code
+
+    - id: apply
+      node: applyCustomerBalance
+      dependsOn: [wrongCurrency]
+      description: Apply what the payment needs, which pays it
+      values:
+        paymentIntentId: {from: pay.paymentIntentId}
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: status == "succeeded" && amountRemaining == 0
+
+    - id: applyAgain
+      node: applyCustomerBalance
+      dependsOn: [apply]
+      description: Apply the balance to it a second time
+      values:
+        paymentIntentId: {from: pay.paymentIntentId}
+      expectFailure:
+        status: [400]
+        description: payment_intent_unexpected_state, since it is paid
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: error.type == "invalid_request_error" && error.code == "payment_intent_unexpected_state"
+          - type: fieldAbsent
+            path: error.param
+          - type: fieldAbsent
+            path: error.decline_code
+
+    - id: cardPay
+      node: createPaymentIntent
+      dependsOn: [applyAgain]
+      description: A card payment, which has no cash balance to apply
+      values:
+        customerId: {from: customer.customerId}
+        amount: 1000
+        confirm: true
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: status == "succeeded"
+
+    - id: applyToCard
+      node: applyCustomerBalance
+      description: Apply the balance to the card payment
+      values:
+        paymentIntentId: {from: cardPay.paymentIntentId}
+      expectFailure:
+        status: [400]
+        description: only a customer_balance payment takes one
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: error.type == "invalid_request_error"
+          - type: fieldAbsent
+            path: error.code
+          - type: fieldAbsent
+            path: error.param
+          - type: fieldAbsent
+            path: error.decline_code
+
+    - id: drain
+      node: createBankTransferPaymentIntent
+      dependsOn: [applyToCard]
+      description: Spend what is left of the balance
+      values:
+        customerId: {from: customer.customerId}
+        amount: 1000
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: status == "requires_action" && amountRemaining == amount
+
+    - id: applyRest
+      node: applyCustomerBalance
+      description: Apply it, which pays the second payment too
+      values:
+        paymentIntentId: {from: drain.paymentIntentId}
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: status == "succeeded" && amountRemaining == 0 && nextActionType == ""
+
+    - id: balanceEnd
+      node: getCashBalance
+      dependsOn: [applyRest]
+      isGoal: true
+      description: The balance, back to nothing, so the customer can be deleted
+      values:
+        customerId: {from: customer.customerId}
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: availableUsd == 0 && reconciliationMode == "manual"

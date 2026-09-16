@@ -1,0 +1,21 @@
+adapter: verifyPaymentIntentMicrodeposits
+protocol: http
+
+request:
+  method: POST
+  path: /v1/payment_intents/{{paymentIntentId}}/verify_microdeposits
+  form:
+    descriptor_code: "{{descriptorCode}}"
+    amounts[]: "{{amounts}}"
+
+response:
+  extract:
+    paymentIntentId: id
+    status: status
+    nextActionType:
+      path: next_action.type
+      default: ""
+    amountReceived: amount_received
+    lastErrorCode:
+      path: last_payment_error.code
+      default: ""

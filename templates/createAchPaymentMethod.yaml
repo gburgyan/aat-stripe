@@ -1,0 +1,49 @@
+adapter: createAchPaymentMethod
+protocol: http
+
+request:
+  method: POST
+  path: /v1/payment_methods
+  headers:
+    Idempotency-Key: "{{idempotencyKey}}"
+  form:
+    type: us_bank_account
+    us_bank_account:
+      routing_number: "{{routingNumber}}"
+      account_number: "{{accountNumber}}"
+      account_holder_type: "{{accountHolderType}}"
+    billing_details:
+      name: "{{billingName}}"
+      email: "{{billingEmail}}"
+    metadata:
+      source: aat-stripe
+
+response:
+  extract:
+    paymentMethodId: id
+    type: type
+    livemode: livemode
+    customerId:
+      path: customer
+      default: ""
+    bankName:
+      path: us_bank_account.bank_name
+      default: ""
+    last4:
+      path: us_bank_account.last4
+      default: ""
+    accountHolderType:
+      path: us_bank_account.account_holder_type
+      default: ""
+    accountType:
+      path: us_bank_account.account_type
+      default: ""
+    preferredNetwork:
+      path: us_bank_account.networks.preferred
+      default: ""
+    billingName:
+      path: billing_details.name
+      default: ""
+    source:
+      path: metadata.source
+      default: ""

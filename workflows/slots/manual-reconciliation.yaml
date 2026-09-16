@@ -1,0 +1,60 @@
+execution:
+  steps:
+    - id: manual
+      node: updateCashBalance
+      description: Apply the balance by hand rather than as the money arrives
+      values:
+        customerId: {from: customer.customerId}
+        reconciliationMode: manual
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: reconciliationMode == "manual" && usingMerchantDefault == false
+
+    - id: fund
+      node: fundCashBalance
+      dependsOn: [manual]
+      description: The customer's transfer arrives
+      values:
+        customerId: {from: customer.customerId}
+        amount: 2000
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: type == "funded" && netAmount == 2000 && endingBalance == 2000
+
+    - id: pay
+      node: createBankTransferPaymentIntent
+      dependsOn: [fund]
+      description: The payment waits, since nothing is applied on its own now
+      values:
+        customerId: {from: customer.customerId}
+        amount: 2000
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: >-
+              status == "requires_action" && nextActionType == "display_bank_transfer_instructions" &&
+              amountRemaining == amount && amountReceived == 0
+
+    - id: applyPart
+      node: applyCustomerBalance
+      description: Apply 500 of the balance, leaving the rest to pay
+      values:
+        paymentIntentId: {from: pay.paymentIntentId}
+        amount: 500
+        currency: usd
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: status == "requires_action" && amountRemaining == "{{pay.amountRemaining - 500}}"
+
+    - id: applyRest
+      node: applyCustomerBalance
+      description: Apply what is left, which pays it
+      values:
+        paymentIntentId: {from: pay.paymentIntentId}
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: status == "succeeded" && amountRemaining == 0 && nextActionType == ""

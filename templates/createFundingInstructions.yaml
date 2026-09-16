@@ -1,0 +1,33 @@
+adapter: createFundingInstructions
+protocol: http
+
+request:
+  method: POST
+  path: /v1/customers/{{customerId}}/funding_instructions
+  headers:
+    Idempotency-Key: "{{idempotencyKey}}"
+  form:
+    funding_type: "{{fundingType}}"
+    currency: "{{currency}}"
+    bank_transfer:
+      type: "{{bankTransferType}}"
+      eu_bank_transfer:
+        country: "{{euCountry}}"
+
+response:
+  extract:
+    currency: currency
+    fundingType: funding_type
+    livemode: livemode
+    bankTransferType:
+      path: bank_transfer.type
+      default: ""
+    addressCount:
+      path: bank_transfer.financial_addresses.#
+      default: 0
+    addressTypes:
+      path: bank_transfer.financial_addresses.#.type
+      default: []
+    firstAddressType:
+      path: bank_transfer.financial_addresses.0.type
+      default: ""

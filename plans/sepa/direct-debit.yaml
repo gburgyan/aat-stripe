@@ -1,0 +1,100 @@
+# A SEPA Direct Debit in euros. The IBAN is sent with the payment, the customer's mandate acceptance goes with it, and
+# the payment goes through processing rather than succeeding at once: about 15 seconds in test mode. The mandate records
+# how the customer accepted it. Stripe's failing test IBAN is taken the same way and fails afterward, with the reason on
+# the charge.
+intent:
+  goal: settleFailed
+  description: A SEPA payment settles through processing, and the failing test IBAN fails after it is taken
+
+execution:
+  steps:
+    - id: customer
+      node: createCustomer
+      description: A customer tagged metadata[source]=aat-stripe
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: livemode == false && source == "aat-stripe"
+
+    - id: sepaAccount
+      node: createSepaPaymentMethod
+      dependsOn: [customer]
+      description: A SEPA PaymentMethod from a German test IBAN
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: >-
+              livemode == false && type == "sepa_debit" && country == "DE" && last4 == "3000" &&
+              bankCode == "37040044" && customerId == "" && source == "aat-stripe"
+
+    - id: pay
+      node: createSepaPaymentIntent
+      dependsOn: [sepaAccount]
+      description: Take a euro payment from the IBAN
+      values:
+        customerId: {from: customer.customerId}
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: >-
+              livemode == false && status == "processing" && currency == "eur" && amountReceived == 0 &&
+              latestChargeId != "" && source == "aat-stripe"
+
+    - id: settle
+      node: getPaymentIntent
+      description: Read the payment until the bank has answered
+      values:
+        paymentIntentId: {from: pay.paymentIntentId}
+      repeat:
+        until: status != "processing"
+        interval: 3s
+        max: 40
+        timeout: 150s
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: status == "succeeded" && amountReceived == "{{pay.amount}}"
+
+    - id: mandate
+      node: getMandate
+      dependsOn: [settle]
+      description: The mandate the payment was taken under
+      values:
+        mandateId: {from: pay.mandateId}
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: >-
+              livemode == false && paymentMethodType == "sepa_debit" && acceptanceType == "online" &&
+              acceptanceIp == "203.0.113.10" && acceptanceUserAgent == "aat-stripe" && sepaReferenceSet != ""
+
+    - id: failing
+      node: createSepaPaymentIntent
+      dependsOn: [mandate]
+      description: Take a payment from the IBAN that fails afterward
+      values:
+        customerId: {from: customer.customerId}
+        amount: 1100
+        iban: DE62370400440532013001
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: status == "processing" && amountReceived == 0
+
+    - id: settleFailed
+      node: getPaymentIntent
+      isGoal: true
+      description: Read it until the bank refuses it
+      values:
+        paymentIntentId: {from: failing.paymentIntentId}
+      repeat:
+        until: status != "processing"
+        interval: 3s
+        max: 40
+        timeout: 150s
+      assertions:
+        mechanical:
+          - type: predicate
+            expr: >-
+              status == "requires_payment_method" && amountReceived == 0 &&
+              lastErrorCode == "payment_intent_payment_attempt_failed" && lastDeclineCode == "generic_decline"

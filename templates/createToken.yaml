@@ -1,0 +1,50 @@
+adapter: createToken
+protocol: http
+
+request:
+  method: POST
+  path: /v1/tokens
+  headers:
+    Idempotency-Key: "{{idempotencyKey}}"
+  form:
+    bank_account:
+      country: "{{bankCountry}}"
+      currency: "{{bankCurrency}}"
+      routing_number: "{{routingNumber}}"
+      account_number: "{{accountNumber}}"
+      account_holder_name: "{{accountHolderName}}"
+      account_holder_type: "{{accountHolderType}}"
+    pii:
+      id_number: "{{idNumber}}"
+    cvc_update:
+      cvc: "{{cvc}}"
+    card:
+      number: "{{cardNumber}}"
+      exp_month: "{{cardExpMonth}}"
+      exp_year: "{{cardExpYear}}"
+      cvc: "{{cardCvc}}"
+
+response:
+  extract:
+    tokenId: id
+    type: type
+    used: used
+    livemode: livemode
+    clientIpSet:
+      path: client_ip
+      default: ""
+    bankLast4:
+      path: bank_account.last4
+      default: ""
+    bankStatus:
+      path: bank_account.status
+      default: ""
+    bankName:
+      path: bank_account.bank_name
+      default: ""
+    bankCountry:
+      path: bank_account.country
+      default: ""
+    cardBrand:
+      path: card.brand
+      default: ""

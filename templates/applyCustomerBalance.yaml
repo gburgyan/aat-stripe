@@ -1,0 +1,28 @@
+adapter: applyCustomerBalance
+protocol: http
+
+request:
+  method: POST
+  path: /v1/payment_intents/{{paymentIntentId}}/apply_customer_balance
+  headers:
+    Idempotency-Key: "{{idempotencyKey}}"
+  form:
+    amount: "{{amount}}"
+    currency: "{{currency}}"
+
+response:
+  extract:
+    paymentIntentId: id
+    status: status
+    amount:
+      path: amount
+      default: 0
+    amountReceived:
+      path: amount_received
+      default: 0
+    nextActionType:
+      path: next_action.type
+      default: ""
+    amountRemaining:
+      path: next_action.display_bank_transfer_instructions.amount_remaining
+      default: 0

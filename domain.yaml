@@ -105,6 +105,9 @@ concepts:
       is canceled instead. Refunds can't be deleted. Proven by plans/refunds/full-refund.yaml,
       plans/refunds/partial-refund.yaml, and plans/refunds/refund-limits.yaml.
     applies_to: [refundId, amount, reason, amountRefunded, refunded]
+    # A refund of a bank transfer payment has to collect the customer's bank details by email, which needs a verified
+    # account email, so this account refuses it. Only a refund waiting on the customer can be canceled or expired, so a
+    # card refund refuses both. Proven by plans/refunds/refund-gates.yaml.
 
   incrementalAuthorization:
     description: >-
@@ -121,6 +124,8 @@ concepts:
       no code or param. Proven by plans/customers/update-and-search.yaml.
     applies_to: [query, page, nextPage]
     constraint: poll a search until it finds a new object, or read a list instead
+    # Customers took 16 to 20 seconds, PaymentIntents about 30, and charges were in the index sooner.
+    # Also proven by plans/search/payment-intents-and-charges.yaml, which pages a search with next_page.
 
   customerBalance:
     description: >-
@@ -158,3 +163,68 @@ concepts:
       plans/setup-intents/update-confirm-cancel.yaml, and plans/setup-intents/authentication.yaml.
     applies_to: [setupIntentId, status, usage, latestAttemptId, cancellationReason, offSession]
     constraint: read a SetupIntent's status before canceling it, and cancel only one still open
+
+  achDebits:
+    description: >-
+      A US bank account is charged through a PaymentIntent with payment_method_types us_bank_account, and it needs the
+      customer's mandate: without mandate_data the create is 400, and it still leaves a PaymentIntent in
+      requires_confirmation. An account given by its numbers is verified first, so the PaymentIntent waits in
+      requires_action with a verify_with_microdeposits next action, whose microdeposit_type here is descriptor_code. The
+      test descriptor code is SM11AA; a wrong one is payment_method_microdeposit_verification_descriptor_code_mismatch,
+      one amount is payment_method_microdeposit_verification_amounts_invalid on param amounts, and verifying an intent
+      that isn't waiting is payment_intent_unexpected_state, or intent_invalid_state on a SetupIntent. A debit is not
+      instant: it goes through processing and settles about 20 seconds later, or fails with insufficient_funds or
+      account_closed on last_payment_error. Proven by the plans in plans/ach/.
+    applies_to: [routingNumber, accountNumber, microdepositType, descriptorCode, amounts, verificationMethod]
+    constraint: collect mandate acceptance, verify the deposits, then read the payment until it leaves processing
+
+  mandates:
+    description: >-
+      A mandate is the customer's authorization for a debit, and Stripe records how it was accepted, with the IP address
+      and user agent given as mandate_data. A SetupIntent's mandate is multi_use and stays active, and a later
+      off-session debit on that payment method reuses it with nothing to collect again. A single payment's mandate is
+      single_use. A SEPA mandate carries a reference. An unknown mandate is 404 resource_missing on param mandate.
+      Proven by plans/ach/saved-bank-account.yaml and plans/sepa/direct-debit.yaml.
+    applies_to: [mandateId, acceptanceType, acceptanceIp, acceptanceUserAgent]
+
+  sepaDirectDebit:
+    description: >-
+      A SEPA debit is taken in euros from an IBAN, with mandate acceptance, and goes through processing rather than
+      succeeding at once: about 15 seconds in test mode. The country and bank code come from the IBAN. Stripe's failing
+      test IBAN is accepted the same way and fails afterward, with last_payment_error
+      payment_intent_payment_attempt_failed and the reason on the charge. Proven by plans/sepa/direct-debit.yaml.
+    applies_to: [iban, bankCode, chargeFailureCode]
+
+  cashBalance:
+    description: >-
+      A customer can pay by bank transfer into a cash balance. Funding instructions give the bank details to pay into,
+      the same ones again for the same customer, in a response whose bank_transfer.type Stripe's own spec doesn't
+      describe, so drift/funding-instructions.yaml reads them with findings reported rather than failing. A test helper
+      pretends the transfer arrived. With reconciliation
+      automatic a payment takes what it needs as the money is there, or takes part and waits with the amount_remaining;
+      with manual it waits for apply_customer_balance, which refuses more than remains, another currency, a payment
+      already paid, and a payment that isn't a customer_balance one. An amount below 1 is parameter_invalid_integer, and
+      a mode that isn't automatic, manual, or merchant_default is refused on param settings[reconciliation_mode]. A
+      customer with a positive cash balance can't be deleted, so a plan spends it first. Proven by the plans in
+      plans/cash-balance/.
+    applies_to: [availableUsd, reconciliationMode, amountRemaining, bankTransferType, fundingType]
+    constraint: spend a cash balance to zero before deleting the customer
+
+  tokens:
+    description: >-
+      A token holds one thing once: a bank account (btok_), a PII number (pii_), or a CVC collected again (cvctok_).
+      Exactly one kind per request, so none is parameter_missing and two is refused with no code, and a raw card number
+      is refused as it is on PaymentMethods. A CVC token spent on a payment reads back used, and using it again is 400
+      token_already_used, which still leaves a PaymentIntent. An unknown token is 400 resource_missing on param token,
+      not 404. Proven by plans/tokens/tokens.yaml.
+    applies_to: [tokenId, used, idNumber, cvc]
+
+  confirmationTokens:
+    description: >-
+      A ConfirmationToken carries what Stripe.js collected in the browser, and a test helper makes one without a
+      browser. It lasts 12 hours, previews its payment method, and confirms exactly one PaymentIntent: a second
+      confirmation is 400 payment_intent_confirmation_token_invalid, and a setup_future_usage that doesn't match the
+      PaymentIntent's is refused on that param. A token that asks to save the card leaves the customer holding it.
+      An unknown token is 404 resource_missing on param confirmation_token. Proven by
+      plans/confirmation-tokens/confirm-and-save.yaml.
+    applies_to: [confirmationTokenId, setupFutureUsage, previewType, expiresAt]
