@@ -269,6 +269,36 @@ paymentIntentId:
     filter: status == "requires_confirmation"
 ```
 
+## See it in the web UI
+
+`aat web view latest` opens a run as a timeline of its steps, each with its status, timing, and the outputs the graph
+marks for display. This is the ACH debit: the bank account created, the debit waiting in `requires_action`, the
+microdeposits verified, and 58 seconds of polling before it settled.
+
+![The ACH run in the web UI: seven passing steps, with the PaymentMethod, PaymentIntent, and each status shown beneath the step that produced it, and the settle step taking 58 seconds](docs/images/ui-run-ach.png)
+
+A step's page shows its request, response, extracted outputs, assertions, and how each input was resolved. A repeated
+step also gets a **Requests** tab, one row per request: here all 19 reads of the debit, the last of which met the
+condition that stopped it.
+
+![The settle step's Requests tab: 19 requests, stopped by UNTIL, each row with its status, duration, and outputs](docs/images/ui-step-requests.png)
+
+Every Stripe write is form-encoded, so a request body is a row per field rather than one escaped string. The
+`Authorization` header is redacted in the archive itself, not just in the view.
+
+![The setup step's Request tab: the headers with Authorization redacted and the Content-Type form-urlencoded, and the body as six named form fields](docs/images/ui-step-form-body.png)
+
+The **OAS** tab is where strict validation shows its work. This is the funding-instructions response: the request
+validated, and the response did not, because Stripe's own spec doesn't allow the `bank_transfer.type` its live API
+answered with.
+
+![The OAS tab on the funding instructions step: request validation valid, response validation one error, bank_transfer.type must be one of eu_bank_transfer or jp_bank_transfer](docs/images/ui-step-oas-drift.png)
+
+A batch gets its own page: every plan, its steps, and its duration, with the issues badge counting the one deliberate
+spec violation.
+
+![The full batch in the web UI: 53 of 53 passed in 5m 17s, with a row per plan showing its steps and duration](docs/images/ui-batch.png)
+
 ## Layers and matrix runs
 
 A layer fills inputs a plan leaves unset. The package's layers vary the card, the currency, and the amount; each sets
@@ -319,6 +349,11 @@ aat: dedup — 8 duplicate permutations detected:
 The twelve that ran are the real cells: Mastercard, American Express, and Discover, each in dollars, euros, and yen,
 plus the three currencies on the default Visa. Every one of them ended with its charge carrying the brand its layer
 named.
+
+A batch's **By Test** view draws the matrix — a row per plan, a column per combination of layers, and a filter per
+group:
+
+![The batch matrix in the web UI: matrix/card-payment passing across every combination of card and currency layers, with the eight duplicates hidden](docs/images/ui-batch-matrix.png)
 
 Run layer groups on [`plans/matrix/`](plans/matrix/) only. The other plans pin what they prove to a card or a currency —
 a decline plan names the card whose error it asserts, and the partial-capture plan captures `amount - 500` — so a layer
@@ -664,6 +699,7 @@ plans/search/        search, once the index catches up
 plans/matrix/        the row that layer groups cross
 plans/zz-guard/      the guards, which sort last
 drift/               plans for the environments that report findings instead of failing
+docs/images/         the screenshots in this README, taken from the runs above
 openapi/spec3.json   Stripe's spec, vendored verbatim
 ```
 
