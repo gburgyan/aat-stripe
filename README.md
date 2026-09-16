@@ -699,6 +699,7 @@ plans/search/        search, once the index catches up
 plans/matrix/        the row that layer groups cross
 plans/zz-guard/      the guards, which sort last
 drift/               plans for the environments that report findings instead of failing
+docs/api/            generated from the graph: a page per node, and a diagram of the wiring
 docs/images/         the screenshots in this README, taken from the runs above
 openapi/spec3.json   Stripe's spec, vendored verbatim
 ```
