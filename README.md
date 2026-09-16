@@ -1,7 +1,8 @@
 # aat-stripe
 
-Stripe's API in test mode as an [AAT](https://github.com/gburgyan/aat) project. A graph gives every operation a node,
-a template per node says how the request is built and what comes back, and plans prove what the API really does by
+Stripe's API in test mode as an [AAT](https://github.com/gburgyan/aat) project. AAT is a command-line tool that
+models an API as a graph and runs long, multi-step test plans against it: here a graph gives every operation a node, a
+template per node says how the request is built and what comes back, and plans prove what the API really does by
 running against Stripe's live test API. Every request and response is checked against
 [Stripe's own OpenAPI spec](#the-spec) as it goes.
 
@@ -10,7 +11,9 @@ says *probe*.
 
 **Status:** the account and its reference data, customers, card payments, saved cards, bank debits by ACH and SEPA,
 bank transfers into a cash balance, tokens, and search: **82 operations run by 53 plans** that pass together in about
-five minutes ([what's not covered](#not-covered)).
+five minutes, with 14 layers crossed into matrices ([what's not covered](#not-covered-yet)).
+
+[![nightly run](https://github.com/gburgyan/aat-stripe/actions/workflows/nightly.yml/badge.svg)](https://github.com/gburgyan/aat-stripe/actions/workflows/nightly.yml)
 
 ```text
 $ aat run plan setup-intents/saved-card
@@ -45,7 +48,9 @@ succeeded on one attempt, read the PaymentMethod the customer now holds — Stri
 ID of its own — and charged it with no customer present. Then cleanup read both intents, left them alone because they
 had succeeded, and deleted the customer.
 
-## Three ways to read this package
+## Three ways to read this project
+
+Three things at once, and they are the same files.
 
 - **A worked Stripe integration.** Each node names a Stripe operation, the inputs it takes, and the outputs worth
   keeping, and its description says what the API does with them. The templates are the request bodies, including the
@@ -58,11 +63,15 @@ had succeeded, and deleted the customer.
   guards, strict OpenAPI validation against a vendored spec, and the archive that records all of it. See
   [AAT features on display](#aat-features-on-display) and [How this was built](#how-this-was-built).
 
+It is one of three such projects, with [aat-duffel](https://github.com/gburgyan/aat-duffel) and
+[aat-shippo](https://github.com/gburgyan/aat-shippo); [Real APIs](https://gburgyan.github.io/aat/examples/real-apis/)
+compares them.
+
 ## Getting started
 
 ### What you need
 
-- **`aat` v0.2.0 or later**, which carries the features this package needed (see
+- **`aat` v0.2.0 or later**, which carries the features this project needed (see
   [How this was built](#how-this-was-built)). Install it with Homebrew, a release archive, Docker, or `go install` —
   see [Install](https://gburgyan.github.io/aat/install/):
 
@@ -78,6 +87,8 @@ had succeeded, and deleted the customer.
   export STRIPE_API_KEY=sk_test_...   # the variable the Stripe CLI reads
   ```
 
+### Nothing here can move real money
+
 Every node that creates an object fails a response whose `livemode` is true, so a live key stops a plan at its first
 object. Every object a plan creates carries `metadata[source]=aat-stripe`, cleanup removes it, and the
 [guards](#guards-and-cleanup) fail if anything is left.
@@ -88,7 +99,7 @@ under `_output/`, which git ignores.
 
 Some phases need something switched on in the Dashboard: Connect with a platform profile, Issuing, Tax with a head
 office address, and a Radar rule for reviews. What this account refuses today is listed under
-[not covered](#not-covered), asserted rather than assumed.
+[not covered](#not-covered-yet), asserted rather than assumed.
 
 ### Run it
 
@@ -121,12 +132,26 @@ aat run show latest --step settle --iteration 19            # one request of a p
 | `test-auto` | `test`, with spec findings reported rather than failing a step, for [drift/funding-instructions](drift/funding-instructions.yaml), [a response Stripe's own spec doesn't describe](#stripes-own-spec-doesnt-describe-one-of-its-responses) |
 | `account-default` | No `Stripe-Version`, so Stripe answers at the account's default API version, with findings reported |
 
-`packageEpoch` is the Unix time the package started; the guards look at objects created since then. `webhookUrl` is
+`packageEpoch` is the Unix time the project started; the guards look at objects created since then. `webhookUrl` is
 where webhook plans will point, `https://example.com/aat-stripe/webhooks` unless `--var webhookUrl=…` says otherwise.
+
+## Point your coding assistant at it
+
+The same files are an MCP server. [`.mcp.json`](.mcp.json) registers two, and Claude Code loads them when it opens
+this directory; other clients take the same commands:
+
+- **`stripe-api`** (`aat mcp serve --persona api`): read-only tools that hand an assistant each operation's exact
+  request, the order calls go in, what each needs from the calls before it, the domain's rules, the spec's schemas,
+  and sample responses from real runs. Ask it for a client in your language and it has the whole workflow to work
+  from, not a pile of endpoint reference.
+- **`stripe-test`** (`--persona test`): the tools to write, validate, run, and debug plans against your own test
+  account, with `STRIPE_API_KEY` in the environment.
+
+[MCP server](https://gburgyan.github.io/aat/mcp-server/) covers the tools, other clients, and the HTTP transport.
 
 ## How the plans fit together
 
-Five workflows carry most of the package, each with a slot that chooses how the story ends. A plan that reuses one is a
+Five workflows carry most of the project, each with a slot that chooses how the story ends. A plan that reuses one is a
 **recipe**: it names the workflow, picks the slot, and AAT composes the full plan when it runs. Here is the whole of
 the manual-capture plan:
 
@@ -232,7 +257,7 @@ cleanup ran 44 customer deletes, 45 status reads, and 9 cancels, with 0 failures
 intents that had already closed, and a plan's own cancel or delete released 4 more.
 
 Then the three [`zz-guard/`](plans/zz-guard/) plans, which sort last, read every page of customers, PaymentIntents,
-and SetupIntents created since the package started, and fail if one of ours is left:
+and SetupIntents created since the project started, and fail if one of ours is left:
 
 ```yaml
 - id: paymentIntents
@@ -301,7 +326,7 @@ spec violation.
 
 ## Layers and matrix runs
 
-A layer fills inputs a plan leaves unset. The package's layers vary the card, the currency, and the amount; each sets
+A layer fills inputs a plan leaves unset. The project's layers vary the card, the currency, and the amount; each sets
 inputs of `createPaymentIntent` only, so a plan that names its own card keeps it.
 
 | Layers | Inputs | Values (and without the layer) |
@@ -366,7 +391,7 @@ that changes those would fail them by design.
 Each operation is a node in [`graph.yaml`](graph.yaml), with a template in [`templates/`](templates/) and its
 `operationId` from Stripe's spec. Every node runs in at least one plan; the cleanup nodes run in cleanup.
 
-| Operation | Node | Run by |
+| Operation | Node | Proven by |
 |---|---|---|
 | `GET /v1/account` | `getAccount` | [account-and-balance](plans/account/account-and-balance.yaml) |
 | `GET /v1/balance` | `getBalance` | [account-and-balance](plans/account/account-and-balance.yaml), every payment workflow |
@@ -453,7 +478,7 @@ Each operation is a node in [`graph.yaml`](graph.yaml), with a template in [`tem
 | [confirmation-tokens/confirm-and-save](plans/confirmation-tokens/confirm-and-save.yaml) | A ConfirmationToken's 12-hour life, the one payment it confirms, the card it saves, and its two refusals |
 | [search/payment-intents-and-charges](plans/search/payment-intents-and-charges.yaml) | Search finds a new payment once the index catches up, compares amounts, pages with `next_page`, and refuses a bad field and a missing query |
 | [matrix/card-payment](plans/matrix/card-payment.yaml) | One card payment for whatever the layers choose, with the charge's brand matching the layer |
-| the three [zz-guard](plans/zz-guard/) plans | No customer, PaymentIntent, or SetupIntent of ours is left behind, across every page since the package started |
+| the three [zz-guard](plans/zz-guard/) plans | No customer, PaymentIntent, or SetupIntent of ours is left behind, across every page since the project started |
 | [drift/account-default](drift/account-default.yaml), [drift/funding-instructions](drift/funding-instructions.yaml) | What changes at the account's default API version, and the response Stripe's own spec doesn't describe |
 
 ## What Stripe does in test mode
@@ -594,7 +619,7 @@ finding without failing the step; everything else stays strict.
 
 ## AAT features on display
 
-| Feature | In this package |
+| Feature | In this project |
 |---|---|
 | Strict OpenAPI validation | Every node names its operation in Stripe's own spec, and `test` checks each request and response against it: 202 requests and 501 responses in a full batch, with 1 violation — a refusal that sends a reconciliation mode the spec's enum doesn't allow, on purpose. A step that expects to fail never fails on a violation |
 | Workflows, slots, and recipes | Five workflows with 17 slots between them; 19 of the 53 plans are recipes of a few lines |
@@ -611,7 +636,7 @@ finding without failing the step; everything else stays strict.
 | Headers as outputs | `createCustomer` reads `Idempotent-Replayed`, `Original-Request`, `Request-Id`, and `Stripe-Version` |
 | Form bodies read as fields | Every Stripe write is form-encoded; `aat run show --step setup --request` prints its fields, and `--path metadata.source` selects from `metadata[source]=` |
 | Test helpers as nodes | `fund_cash_balance`, `confirmation_tokens`, and the refund `expire` helper are nodes like any other |
-| Lua, where a transform earns its place | The PaymentIntent and SetupIntent lists count what this package created, and what of it is still open |
+| Lua, where a transform earns its place | The PaymentIntent and SetupIntent lists count what this project created, and what of it is still open |
 | Error detection | A create answered with `livemode: true` fails the step, so a live key stops at the first object |
 | Environments | `_stripe` → `_pinned` → `test` → `test-ci`, with `test-auto` and `account-default` beside them |
 | Domain knowledge | [`domain.yaml`](domain.yaml): 24 concepts, each naming the plans that proved it, for AI tools that read the project |
@@ -619,13 +644,13 @@ finding without failing the step; everything else stays strict.
 
 ## How this was built
 
-The package was written in one session against the live test API, in phases: the account and customers, then card
-payments, then saved cards, then bank debits and the rest. Each phase probed the API first, then locked what it found
+The project was built against the live test API one family at a time: the account and customers, then card payments,
+then saved cards, then bank debits and the rest. Each family was probed first, and what the probe found was locked
 into assertions — which is why the notes above cite plans rather than documentation.
 
 **Six changes to AAT came out of it,** each small and general, none of them Stripe-specific:
 
-| Change | What the package needed it for |
+| Change | What the project needed it for |
 |---|---|
 | [#21](https://github.com/gburgyan/aat/pull/21) Path and query inputs named apart from the spec's parameters | Calling the input `customerId` while the spec calls the parameter `customer` |
 | [#22](https://github.com/gburgyan/aat/pull/22) The `fieldAbsent` assertion | Stripe's error bodies leave out `code` and `param`, and a predicate can't name a field that isn't there |
@@ -635,14 +660,14 @@ into assertions — which is why the notes above cite plans rather than document
 | [#26](https://github.com/gburgyan/aat/pull/26) Form bodies read as fields | Every Stripe write is form-encoded, and archives printed them as one escaped string |
 
 None of them was needed to *call* Stripe — the first plans ran before any of them existed. They are what makes a
-package like this read well and fail precisely: name things for what they hold, assert what an error leaves out, and
+project like this read well and fail precisely: name things for what they hold, assert what an error leaves out, and
 be able to see what the twentieth request of a polling step returned.
 
 The rest was authoring: 82 nodes and their templates, five workflows, 14 layers, and 53 plans. Nothing about the
-account is hardcoded — the guards find the package's own objects by `metadata[source]`, and the environments carry the
+account is hardcoded — the guards find the project's own objects by `metadata[source]`, and the environments carry the
 key, the API version, and the pacing.
 
-## Not covered
+## Not covered yet
 
 - **Treasury:** the account isn't onboarded, so its endpoints answer 400 "Unrecognized request URL".
 - **Sigma:** closed in test mode.
@@ -706,3 +731,7 @@ openapi/spec3.json   Stripe's spec, vendored verbatim
 
 Run output goes to `_output/`, which git ignores, along with one-off `probes/` and any `setup-*.sh`, so a key kept in
 one of those never reaches the repository.
+
+## License
+
+Apache 2.0; see [LICENSE](LICENSE).

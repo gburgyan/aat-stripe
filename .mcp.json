@@ -1,0 +1,6 @@
+{
+  "mcpServers": {
+    "stripe-api": {"command": "aat", "args": ["mcp", "serve", "--persona", "api"]},
+    "stripe-test": {"command": "aat", "args": ["mcp", "serve", "--persona", "test"]}
+  }
+}
