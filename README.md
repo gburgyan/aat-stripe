@@ -1,5 +1,7 @@
 # aat-stripe
 
+[![nightly run](https://github.com/gburgyan/aat-stripe/actions/workflows/nightly.yml/badge.svg)](https://github.com/gburgyan/aat-stripe/actions/workflows/nightly.yml)
+
 Stripe's API in test mode as an [AAT](https://github.com/gburgyan/aat) project. AAT is a command-line tool that
 models an API as a graph and runs long, multi-step test plans against it: here a graph gives every operation a node, a
 template per node says how the request is built and what comes back, and plans prove what the API really does by
@@ -12,8 +14,6 @@ says *probe*.
 **Status:** the account and its reference data, customers, card payments, saved cards, bank debits by ACH and SEPA,
 bank transfers into a cash balance, tokens, and search: **82 operations run by 53 plans** that pass together in about
 five minutes, with 14 layers crossed into matrices ([what's not covered](#not-covered-yet)).
-
-[![nightly run](https://github.com/gburgyan/aat-stripe/actions/workflows/nightly.yml/badge.svg)](https://github.com/gburgyan/aat-stripe/actions/workflows/nightly.yml)
 
 ```text
 $ aat run plan setup-intents/saved-card
