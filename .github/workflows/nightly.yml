@@ -1,9 +1,9 @@
 name: nightly run
 
 # Runs the whole project against Stripe's live test API once a day, so the numbers in the README are
-# reproducible from this repository. Skips when the repository has no key. Each run's archives are
-# uploaded, with the credentials Stripe returns removed first, so what the API actually said can be
-# opened with `aat web`.
+# reproducible from this repository. Skips when the repository has no key. Each batch is uploaded as a
+# .aab, with the credentials Stripe returns removed first, so what the API actually said opens with
+# `aat web view <batch>.aab`.
 on:
   schedule:
     - cron: "17 6 * * *"
@@ -44,19 +44,34 @@ jobs:
         if: always() && steps.token.outputs.present == 'true'
         run: python3 .github/scrub-archives.py _output/runs
 
-      - name: Say how to open the archives
+      - name: Pack each batch as a .aab
         if: always() && steps.token.outputs.present == 'true'
         run: |
-          mkdir -p _output/runs
-          cat > _output/runs/HOW-TO-VIEW.md <<'EOF'
-          # The archives from this run
+          shopt -s nullglob
+          for dir in _output/runs/batch-*; do
+            (cd "$dir" && zip -qr "$GITHUB_WORKSPACE/${dir##*/}.aab" . -i '*.json')
+          done
+          packed=(./*.aab)
+          if [ ${#packed[@]} -eq 0 ]; then
+            echo "no batch to pack"
+          else
+            ls -l "${packed[@]}"
+          fi
 
-          Every request and response of this batch, as AAT recorded it.
+      - name: Say how to open it
+        if: always() && steps.token.outputs.present == 'true'
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          ## Run archives
 
-          Unpack this artifact, then, with aat 0.2.0 or later on your PATH:
+          The `run-archives` artifact holds one `.aab` per batch: every request and
+          response, as AAT recorded it. With aat 0.2.0 or later on your PATH:
 
-              aat web --output .              # the whole batch in the browser
-              aat run show latest --output .  # the last run's steps, in the terminal
+          ```
+          aat web view <batch>.aab
+          ```
+
+          It opens in the browser straight from the file -- in memory, nothing unpacked.
 
           AAT redacts every credential it sent before writing an archive, and
           `.github/scrub-archives.py` removes the one Stripe hands back: the client
@@ -69,5 +84,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: run-archives
-          path: _output/runs/
+          path: ./*.aab
+          if-no-files-found: warn
           retention-days: 14
