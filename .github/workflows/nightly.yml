@@ -1,8 +1,9 @@
 name: nightly run
 
 # Runs the whole project against Stripe's live test API once a day, so the numbers in the README are
-# reproducible from this repository. Skips when the repository has no key. Nothing is uploaded: raw
-# responses in _output/ can hold test-account credentials, so the log is the record.
+# reproducible from this repository. Skips when the repository has no key. Each run's archives are
+# uploaded, with the credentials Stripe returns removed first, so what the API actually said can be
+# opened with `aat web`.
 on:
   schedule:
     - cron: "17 6 * * *"
@@ -35,3 +36,38 @@ jobs:
         env:
           STRIPE_API_KEY: ${{ secrets.STRIPE_API_KEY }}
         run: aat run batch --env test-ci
+
+      # Stripe's list reads return intents this project never created, some still open,
+      # each carrying a live client secret. AAT redacts what a run sends, not what an
+      # API hands back, and this artifact is public.
+      - name: Redact the credentials Stripe returned
+        if: always() && steps.token.outputs.present == 'true'
+        run: python3 .github/scrub-archives.py _output/runs
+
+      - name: Say how to open the archives
+        if: always() && steps.token.outputs.present == 'true'
+        run: |
+          mkdir -p _output/runs
+          cat > _output/runs/HOW-TO-VIEW.md <<'EOF'
+          # The archives from this run
+
+          Every request and response of this batch, as AAT recorded it.
+
+          Unpack this artifact, then, with aat 0.2.0 or later on your PATH:
+
+              aat web --output .              # the whole batch in the browser
+              aat run show latest --output .  # the last run's steps, in the terminal
+
+          AAT redacts every credential it sent before writing an archive, and
+          `.github/scrub-archives.py` removes the one Stripe hands back: the client
+          secret on a PaymentIntent or SetupIntent.
+          EOF
+
+      # A failed run is when these are worth opening most, so they upload either way.
+      - name: Upload the run archives
+        if: always() && steps.token.outputs.present == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: run-archives
+          path: _output/runs/
+          retention-days: 14
