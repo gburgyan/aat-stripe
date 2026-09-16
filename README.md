@@ -652,12 +652,12 @@ into assertions — which is why the notes above cite plans rather than document
 
 | Change | What the project needed it for |
 |---|---|
-| [#21](https://github.com/gburgyan/aat/pull/21) Path and query inputs named apart from the spec's parameters | Calling the input `customerId` while the spec calls the parameter `customer` |
-| [#22](https://github.com/gburgyan/aat/pull/22) The `fieldAbsent` assertion | Stripe's error bodies leave out `code` and `param`, and a predicate can't name a field that isn't there |
-| [#23](https://github.com/gburgyan/aat/pull/23) Selection filters read `{{step.output}}` | Finding the event about the customer a plan just created |
-| [#24](https://github.com/gburgyan/aat/pull/24) Offsets on references, and step values that read outputs | `capture: amount - 500`, `refund: amount + 1`, and a token's 12-hour life |
-| [#25](https://github.com/gburgyan/aat/pull/25) A repeated step's requests are readable | An ACH debit polls 19 times; seeing each one is how its plan was debugged |
-| [#26](https://github.com/gburgyan/aat/pull/26) Form bodies read as fields | Every Stripe write is form-encoded, and archives printed them as one escaped string |
+| [#21](https://github.com/gburgyan/aat/commit/8d2cbeee3af0) Path and query inputs named apart from the spec's parameters | Calling the input `customerId` while the spec calls the parameter `customer` |
+| [#22](https://github.com/gburgyan/aat/commit/84211bb77135) The `fieldAbsent` assertion | Stripe's error bodies leave out `code` and `param`, and a predicate can't name a field that isn't there |
+| [#23](https://github.com/gburgyan/aat/commit/ed891246e05c) Selection filters read `{{step.output}}` | Finding the event about the customer a plan just created |
+| [#27](https://github.com/gburgyan/aat/commit/91d73d043eba) Offsets on references, and step values that read outputs | `capture: amount - 500`, `refund: amount + 1`, and a token's 12-hour life |
+| [#25](https://github.com/gburgyan/aat/commit/14a88fea4076) A repeated step's requests are readable | An ACH debit polls 19 times; seeing each one is how its plan was debugged |
+| [#26](https://github.com/gburgyan/aat/commit/30ea671a73b4) Form bodies read as fields | Every Stripe write is form-encoded, and archives printed them as one escaped string |
 
 None of them was needed to *call* Stripe — the first plans ran before any of them existed. They are what makes a
 project like this read well and fail precisely: name things for what they hold, assert what an error leaves out, and
